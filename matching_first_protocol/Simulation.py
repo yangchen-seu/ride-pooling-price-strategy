@@ -11,7 +11,7 @@ import os
 
 
 class Simulation():
-
+    # 输入不同的订单，输出系统的派单结果，以及各种指标
     def __init__(self, cfg) -> None:
         self.cfg = cfg
         self.date = cfg.date
@@ -221,13 +221,12 @@ class Simulation():
 
             return reward,  False
 
-    # 匹配算法
+    # 匹配算法，最近距离匹配
     def first_protocol_matching(self, takers, vehicles, seekers):
         if len(seekers) == 0:
             return 0
         import time
         start = time.time()
-
 
         for seeker in seekers:
             # 当前seeker的zone
@@ -237,13 +236,11 @@ class Simulation():
             match = {}
             for taker in takers:
                 if taker.location in nodes:
-                    match[taker] = self.calTakersWeights(seeker, taker, optimazition_target = self.optimazition_target, \
-                matching_condition = self.matching_condition)
+                    match[taker] = self.calTakersWeights(seeker, taker)
 
             for vehicle in vehicles:
                 if vehicle.location in nodes:
-                    match[vehicle] = self.calVehiclesWeights(vehicle,  seeker, optimazition_target = self.optimazition_target, \
-                matching_condition = self.matching_condition)
+                    match[vehicle] = self.calVehiclesWeights(seeker, vehicle)
 
             # 計算匹配結果
             if not match.values():
@@ -549,50 +546,20 @@ class Simulation():
 
 
 
-    def calTakersWeights(self,  seeker, taker,  optimazition_target, matching_condition):
-        # expected shared distance
+    def calTakersWeights(self,  seeker, taker):
+        # 权重设计为接驾距离
         pick_up_distance = self.get_path(
             seeker.O_location, taker.order_list[0].O_location)
-        fifo, distance = self.is_fifo(taker.order_list[0], seeker)
-
-        if fifo:
-            shared_distance = self.get_path(
-                seeker.O_location, taker.order_list[0].D_location)
-            p0_invehicle = pick_up_distance + distance[0]
-            p1_invehicle = sum(distance)
-            p0_detour = p0_invehicle - taker.order_list[0].shortest_distance
-            p1_detour = p1_invehicle - seeker.shortest_distance
-
-        else:
-            shared_distance = seeker.shortest_distance
-            p0_invehicle = pick_up_distance + sum(distance)
-            p1_invehicle = distance[0]
-            p0_detour = p0_invehicle - taker.order_list[0].shortest_distance
-            p1_detour = p1_invehicle - seeker.shortest_distance
-
-        if matching_condition and (pick_up_distance > self.pickup_distance_threshold or
-                                   p0_detour > self.detour_distance_threshold or
-                                   p1_detour > self.detour_distance_threshold):
-            # print('detour_distance not pass', detour_distance)
-            return self.cfg.dead_value
-        else:
-            reward = (seeker.shortest_distance + taker.order_list[0].shortest_distance
-                      - (p0_invehicle + p1_invehicle - shared_distance) - pick_up_distance) 
-            # reward = ( seeker.shortest_distance + taker.order_list[0].shortest_distance - (p0_invehicle + p1_invehicle - shared_distance) )
-
-            return reward
+        
+        return pick_up_distance
 
 
-
-    def calVehiclesWeights(self, vehicle, seeker,  optimazition_target, matching_condition):
-
+    def calVehiclesWeights(self, seeker, vehicle ):
+        # 权重设计为接驾距离
         pick_up_distance = self.get_path(
             seeker.O_location, vehicle.location)
-        if matching_condition and (pick_up_distance > self.cfg.pickup_distance_threshold):
-            return self.cfg.dead_value
-        else:
-            reward = (0 - pick_up_distance)
-            return reward
+        
+        return pick_up_distance
 
 
     def is_fifo(self, p0, p1):
@@ -613,6 +580,20 @@ class Simulation():
             return tmp['distance'].unique()[0]
         else:
             return self.network.get_path(O,D)[0]
+
+
+
+    def is_carpool_user(self,seeker):
+        if seeker.utility > 100:
+            seeker.carpool_target = 1
+        else:
+            seeker.carpool_target = 0
+        return seeker
+
+
+
+
+
 
     def save_metric(self, path):
         import pickle

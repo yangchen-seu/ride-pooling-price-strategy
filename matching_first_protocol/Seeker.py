@@ -40,6 +40,7 @@ class Seeker():
         self.ride_distance = 0
         self.esds = row.saved_distance_for_seeker
         self.esdt = row.saved_distance_for_taker
+        self.carpool_target = 0 # 是否会选择拼车
 
     def show(self):
         print('self.id', self.id)
