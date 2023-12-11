@@ -15,6 +15,47 @@ import os
 from progress.bar import Bar
 from settings import params
 
+
+
+import itertools
+import os
+import pickle
+import networkx as nx
+import pandas as pd
+from multiprocessing import Pool
+import time
+import traceback
+from settings import params
+
+if True:
+    with open("tmp/graph.pickle", 'rb') as f:
+        G: nx.Graph = pickle.load(f)
+    with open("tmp/ego_graph.pickle", 'rb') as f:
+        subgraph = pickle.load(f)
+
+def search_matching_OD(OD_idx1,OD2):
+    """Search matching pairs whose seeker-states belong to OD1 and taker-states to OD2
+
+    Args:
+        OD_idx1 (int): The ID of OD1
+        OD2 (list): The information of OD2
+
+    Returns:
+        int: destination of OD2
+    """
+    nearest_G: nx.Graph = subgraph[OD_idx1]
+
+    if nearest_G.has_node(OD2[1]): # 附近有给定OD2的终点
+        pickup_distance = nearest_G.nodes[OD2[1]]["weight"]
+        if pickup_distance <= params["search_radius"]:
+            return OD2[1]
+        else:
+            return False
+    else:
+        return False
+
+
+
 start_time = time.time()
 # -------------------- Start the fixed point iteration --------------------
 # ---------- Load data ----------
@@ -22,6 +63,8 @@ with open("tmp/link.pickle", 'rb') as f:
     link_dict: dict = pickle.load(f)
 with open("tmp/OD.pickle", 'rb') as f:
     OD_dict: dict = pickle.load(f)
+with open("tmp/node.pickle", 'rb') as f:
+    node_dict: dict = pickle.load(f)
 with open("tmp/shortest_path.pickle", 'rb') as f:
     path_dict: dict = pickle.load(f)
 
@@ -34,7 +77,7 @@ if isPrestored == 'n':
         # 将df转为字典
         matches.setdefault(index[0], []).append({"taker_id": index[1], "link_idx": index[2], "preference": row["preference"],
                                                 "ride_seeker": row["ride_seeker"], "ride_taker": row["ride_taker"],
-                                                "detour_seeker": row["detour_seeker"], "detour_taker": row["detour_taker"], "shared": row["shared"], "eta_match": 0})
+                                                "detour_seeker": row["detour_seeker"], "detour_taker": row["detour_taker"], "shared": row["shared"], "destination": row["destination"],"eta_match": 0})
     print("Data loaded.")
     # ---------- Initialize seekers and takers ----------
     seekers = dict()
@@ -63,7 +106,11 @@ iter_start_time = time.time()
 all_steps = []
 iter_num = 0
 error = params['M']
-print("Iterating... |", end='')
+print("Outer Iterating... |", end='')
+while iter_num < params['outer_max_iter_time'] and error > params['outer_convergent_condition'] or iter_num < params["min_iter_time"]:
+    print("Inner Iterating... |", end='')
+    lambda_w_step = []
+    t_pk_w_step = []
 while iter_num < params['max_iter_time'] and error > params['convergent_condition'] or iter_num < params["min_iter_time"]:
     print(iter_num % 10, end='', flush=True)
     lambda_taker_step = []
@@ -187,6 +234,87 @@ for seeker_id in seekers.keys():
     seekers[seeker_id]["ride_distance"] += (1 - seekers[seeker_id]["matching_prob"]) * L
     seekers[seeker_id]["ride_distance_for_seeker"] += (1 - seekers[seeker_id]["p_seeker"]) * L
     seekers[seeker_id]["ride_distance_for_taker"] += takers[seeker_id][len(takers[seeker_id]) - 1]["lambda_taker"] * (1 - takers[seeker_id][len(takers[seeker_id]) - 1]["p_taker"]) / lambda_become_taker * L
+
+
+# ---------- calculate the mean vacant vehicle pick-up time of each OD pair ----------
+# the stopping rate of vehicles at nodes i
+v_dic = {}
+for node_id in node_dict.keys():
+    W_node_id = []
+    for OD_index, value in OD_dict.items():
+        if value[1] == node_id:
+            W_node_id.append(OD_index)
+    M_node_id = match_df[match_df['destination'] == node_id]
+
+    v_i = 0
+
+    for OD_index in W_node_id:
+        P_w = seekers[OD_index]['matching_prob']
+        lambda_w = seekers[OD_index]['lambda']
+        v_i += (1-P_w) * lambda_w
+
+    for seeker_id, takers_of_seeker in matches.items():
+        for taker in takers_of_seeker:
+            if taker['destination'] == node_id:
+                v_i += taker["eta_match"] * takers[taker["taker_id"]][taker["link_idx"]]["rho_taker"]
+
+    v_dic[node_id] = v_i
+# the number of vacant vehicles at each node i
+n_i_v_dic = {}
+for node_id in node_dict.keys():
+    n_i_v = 0
+    for node_id in node_dict.keys():
+        n_i_v += v_dic[node_id]
+    n_i_v_dic[node_id] = v_dic[node_id] / n_i_v * n_v
+
+def pickup_distance_with_vacant_vehicles(n_vacant_vehicles):
+    return n_vacant_vehicles / 100
+
+# the total number of vacant vehicles at each instant
+tmp = 0 
+t_w_dic = []
+for od_id in OD_dict.keys():
+    L_w = seekers[od_id]["ride_distance"]
+    E_w = seekers[od_id]["shared_distance"]
+    lambda_w = seekers[od_id]['lambda']
+    p_s_w = seekers[od_id]["p_seeker"]
+    tmp += ( (L_w - E_w / 2 ) * lambda_w + t_w_pk_bar * (1 - p_s_w) * lambda_w)
+
+    # the pick-up distance
+    nearest_nodes = []
+    for value in OD_dict.values():
+        res = search_matching_OD(od_id, value)
+        if res:
+            nearest_nodes.append(res)
+    n_vacant_vehicles = 0
+    for node in nearest_nodes:
+        n_vacant_vehicles += n_i_v_dic[node]
+
+    t_w_pk_bar = pickup_distance_with_vacant_vehicles(n_vacant_vehicles)
+    
+    t_w_dic[od_id] = p_s_w * 0.5 * params['search_radius'] + (1 - p_s_w) * t_w_pk_bar
+
+n_v = params['n_v'] - tmp
+
+#  the mean ridepooling cost between each OD pair
+def p_w_function(demand, solo_price):
+    return demand * solo_price
+
+C_w_dic = {}
+
+for od_id in OD_dict.keys():
+    C_w_dic[od_id] = params['beta'] * (t_w_dic[od_id] + seekers[od_id]["ride_distance"] / params['speed']) + \
+    p_w_function(seekers[od_id]['lambda'], 1) + params['delta']
+
+# ridepooling demand rate between OD pair
+def f_w_function(C_w):
+    return C_w 
+
+lambda_w_dic = {}
+
+for od_id in OD_dict.keys():
+    lambda_w_dic[od_id] = f_w_function(seekers[od_id]['lambda'])
+
 
 # ---------- Save the prediction result to csv ----------
 print("Result saving ...")

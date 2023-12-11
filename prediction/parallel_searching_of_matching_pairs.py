@@ -73,14 +73,16 @@ def search_matching_pairs(OD_idx1, OD_idx2, OD1, OD2, L1, L2, distance_between_d
                     ride_seeker = L_seeker_FOFO
                     ride_taker = L_taker_FOFO
                     shared = distance_from_seeker_origin_to_taker_dest
+                    destination = OD2[1]
                 else:
                     ride_seeker = L_seeker_FOLO
                     ride_taker = L_taker_FOLO
                     shared = L1
+                    destination = OD1[1]
                 detour_seeker = ride_seeker - L1
                 detour_taker = ride_taker - L2
                 prefer = params['w_detour'] * detour + params['w_pickup'] * pickup_distance + params['w_shared'] * shared + params["w_ride"] * (ride_seeker + ride_taker - shared)
-                match.append([OD_idx1, OD_idx2, 0, prefer, ride_seeker, ride_taker, detour_seeker, detour_taker, shared])
+                match.append([OD_idx1, OD_idx2, 0, prefer, ride_seeker, ride_taker, detour_seeker, detour_taker, shared, destination])
 
     for edge in nearest_G.edges(data=True):
         # OD1附近的路网中，有OD2的最短路
@@ -121,16 +123,18 @@ def search_matching_pairs(OD_idx1, OD_idx2, OD1, OD2, L1, L2, distance_between_d
                     ride_seeker = L_seeker_FOFO
                     ride_taker = L_taker_FOFO
                     shared = distance_from_seeker_origin_to_taker_dest
+                    destination = OD2[1] # taker 先下车
                 else:
                     if L_taker_init + pickup_distance + distance_between_dest >= L1 + distance_from_seeker_origin_to_taker_dest:
                         continue
                     ride_seeker = L_seeker_FOLO
                     ride_taker = L_taker_FOLO
                     shared = L1
+                    destination = OD1[1] # seeker 先下车
                 detour_seeker = max(ride_seeker - L1, 0)
                 detour_taker = max(ride_taker - L2, 0)
                 prefer = params['w_detour'] * detour + params['w_pickup'] * pickup_distance + params['w_shared'] * shared + params["w_ride"] * (ride_seeker + ride_taker - shared)
-                match.append([OD_idx1, OD_idx2, i, prefer, ride_seeker, ride_taker, detour_seeker, detour_taker, shared])
+                match.append([OD_idx1, OD_idx2, i, prefer, ride_seeker, ride_taker, detour_seeker, detour_taker, shared,destination])
     return match
 
 def generate_matches(OD_infor):
