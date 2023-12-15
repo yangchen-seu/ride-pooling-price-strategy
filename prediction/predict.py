@@ -15,7 +15,10 @@ import os
 from progress.bar import Bar
 from settings import params
 
+import logging
 
+# 配置日志
+logging.basicConfig(filename='print.log', level=logging.DEBUG)
 
 import itertools
 import os
@@ -85,12 +88,12 @@ if isPrestored == 'n':
         seekers[seeker_id] = {"lambda": OD[2], "p_seeker": OD[2]}
 
     lambda_w_dic = {}
+    t_w_pk_bar_dic = {}
     t_w_dic = {}
     speed_dic = {}
     for od_id, OD in OD_dict.items():
         lambda_w_dic[od_id] =  OD[2]
-        t_w_dic[od_id] =  OD[-1]
-        speed_dic[od_id] =  OD[-2]
+        t_w_pk_bar_dic[od_id] =  params['pickup_time']
     
     takers = dict()
     for taker_id in OD_dict.keys():
@@ -98,9 +101,9 @@ if isPrestored == 'n':
         #     continue
         takers[taker_id] = dict()
         path = path_dict[taker_id][:-1]
-        takers[taker_id][0] = dict({"tau_bar": t_w_dic[taker_id], "lambda_taker": 0, "p_taker": 0.1, "rho_taker": 0, "eta_taker": 0})
+        takers[taker_id][0] = dict({"tau_bar": t_w_pk_bar_dic[taker_id], "lambda_taker": 0, "p_taker": 0.1, "rho_taker": 0, "eta_taker": 0})
         for link_idx, link_id in enumerate(path):
-            takers[taker_id][link_idx + 1] = {"tau_bar": link_dict[link_id][2] / speed_dic[taker_id], "lambda_taker": 0, "p_taker": 0.1, "rho_taker": 0, "eta_taker": 0}
+            takers[taker_id][link_idx + 1] = {"tau_bar": link_dict[link_id][2] /params['speed'], "lambda_taker": 0, "p_taker": 0.1, "rho_taker": 0, "eta_taker": 0}
 else:
     with open("variables/seekers.pickle", 'rb') as f:
         seekers: dict = pickle.load(f)
@@ -116,11 +119,13 @@ outer_all_steps = []
 outer_error = params['M']
 
 print("Outer Iterating... |", end='')
-while outer_iter_num < params['outer_max_iter_time'] and error > params['outer_convergent_condition'] or outer_iter_num < params["min_iter_time"]:
+while outer_iter_num < params['outer_max_iter_time'] and outer_error > params['outer_convergent_condition'] or outer_iter_num < params["min_iter_time"]:
 
     lambda_w_step = []
     t_pk_w_step = []
     print(outer_iter_num % 10, end='', flush=True)
+    # logging.info('outer_iter_num',outer_iter_num % 10)
+
     inner_iter_start_time = time.time()
     all_steps = []
     inner_iter_num = 0
@@ -136,8 +141,8 @@ while outer_iter_num < params['outer_max_iter_time'] and error > params['outer_c
             seekers[seeker_id]["lambda"] = lambda_w_dic[od_id]
 
         # 更新taker的t_pk
-        for od_id, value in t_w_dic.items():
-            takers[od_id][0]["tau_bar"] = t_w_dic[od_id]
+        for od_id, value in t_w_pk_bar_dic.items():
+            takers[od_id][0]["tau_bar"] = t_w_pk_bar_dic[od_id]
 
         for seeker_id, takers_of_seeker in matches.items():
             eta_match_product = seekers[seeker_id]["lambda"]
@@ -182,8 +187,8 @@ while outer_iter_num < params['outer_max_iter_time'] and error > params['outer_c
             all_steps.append([np.max(lambda_taker_step), np.max(p_seeker_step), np.max(p_taker_step), np.max(rho_taker_step)])
             error = np.max(all_steps[len(all_steps) - 1])
     inner_iter_end_time = time.time()
-    print("\nConverge! It costs:", inner_iter_end_time - inner_iter_start_time)
-    print("The average time of iteration:", (inner_iter_end_time - inner_iter_start_time) / inner_iter_num)
+    print("\n inner Converge! It costs:", inner_iter_end_time - inner_iter_start_time)
+    print("The average time of inner iteration:", (inner_iter_end_time - inner_iter_start_time) / inner_iter_num)
 
     # ---------- Calculate the prediction result ----------
     for seeker_id in seekers.keys():
@@ -257,6 +262,7 @@ while outer_iter_num < params['outer_max_iter_time'] and error > params['outer_c
         W_node_id = []
         for OD_index, value in OD_dict.items():
             if value[1] == node_id:
+                # print('OD_index',OD_index,'value',value)
                 W_node_id.append(OD_index)
         M_node_id = match_df[match_df['destination'] == node_id]
 
@@ -266,6 +272,7 @@ while outer_iter_num < params['outer_max_iter_time'] and error > params['outer_c
             P_w = seekers[OD_index]['matching_prob']
             lambda_w = seekers[OD_index]['lambda']
             v_i += (1-P_w) * lambda_w
+            # logging.info('P_w',P_w,'lambda_w',lambda_w,'v_i',v_i)
 
         for seeker_id, takers_of_seeker in matches.items():
             for taker in takers_of_seeker:
@@ -273,17 +280,7 @@ while outer_iter_num < params['outer_max_iter_time'] and error > params['outer_c
                     v_i += taker["eta_match"] * takers[taker["taker_id"]][taker["link_idx"]]["rho_taker"]
 
         v_dic[node_id] = v_i
-    # the number of vacant vehicles at each node i
-    n_i_v_dic = {}
-    for node_id in node_dict.keys():
-        n_i_v = 0
-        for node_id in node_dict.keys():
-            n_i_v += v_dic[node_id]
-        n_i_v_dic[node_id] = v_dic[node_id] / n_i_v * n_v
-
-    def pickup_distance_with_vacant_vehicles(n_vacant_vehicles):
-        return n_vacant_vehicles / 100
-
+        # logging.info('v_dic[node_id]',v_dic[node_id],'node_id',node_id,'W_node_id',W_node_id,'M_node_id',M_node_id)
     # the total number of vacant vehicles at each instant
     tmp = 0
 
@@ -292,29 +289,52 @@ while outer_iter_num < params['outer_max_iter_time'] and error > params['outer_c
         E_w = seekers[od_id]["shared_distance"]
         lambda_w = seekers[od_id]['lambda']
         p_s_w = seekers[od_id]["p_seeker"]
-        tmp += ( (L_w - E_w / 2 ) * lambda_w + t_w_pk_bar * (1 - p_s_w) * lambda_w)
+        tmp += ( (L_w - E_w / 2 ) * lambda_w / params['speed'] + t_w_pk_bar_dic[od_id] * (1 - p_s_w) * lambda_w)
 
+    n_v = params['n_v'] - tmp
+    print('n_v',n_v)
+    # the number of vacant vehicles at each node i
+    n_i_v_dic = {}
+    n_i_v = 0
+    for node_id in node_dict.keys():
+        n_i_v += v_dic[node_id]
+
+    for node_id in node_dict.keys():
+        n_i_v_dic[node_id] = v_dic[node_id] / n_i_v * n_v
+        # logging.info('node_id,{},v_dic[node_id],{},n_i_v{},n_v{}'.format(node_id,v_dic[node_id],n_i_v,n_v))
+    def pickup_distance_with_vacant_vehicles(n_vacant_vehicles):
+        if n_vacant_vehicles == 0:
+            return 30
+        else:
+            return 2.5 / np.sqrt(n_vacant_vehicles / (np.pi * 3 * 3) )  # 单位为min
+
+    # update pickup time
+    for od_id in OD_dict.keys():
         # the pick-up distance
         nearest_nodes = []
         for value in OD_dict.values():
             res = search_matching_OD(od_id, value)
-            if res:
+            if res and res not in nearest_nodes:
+                # logging.info('od_id',od_id,'res',res,'n_i_v_dic[node]',n_i_v_dic[res])
                 nearest_nodes.append(res)
         n_vacant_vehicles = 0
         for node in nearest_nodes:
-            n_vacant_vehicles += n_i_v_dic[node]
+            if node in n_i_v_dic.keys():
+                n_vacant_vehicles += n_i_v_dic[node]
+
+        # logging.info('n_vacant_vehicles',n_vacant_vehicles)
 
         t_w_pk_bar = pickup_distance_with_vacant_vehicles(n_vacant_vehicles)
-        tmp_t_w = t_w_dic[od_id]
+        tmp_t_w_pk_bar = t_w_pk_bar_dic[od_id]
 
-        t_w_dic[od_id] = p_s_w * 0.5 * params['search_radius'] + (1 - p_s_w) * t_w_pk_bar
-        t_pk_w_step.append(abs(t_w_dic[od_id] - tmp_t_w))
-
-    n_v = params['n_v'] - tmp
+        t_w_pk_bar_dic[od_id] = t_w_pk_bar
+        t_w_dic[od_id] = p_s_w * 0.5 * params['search_radius'] /params['speed'] + (1 - p_s_w) * t_w_pk_bar
+        t_pk_w_step.append(abs(t_w_pk_bar_dic[od_id] - t_w_pk_bar))
+        print('od_id',od_id,'t_w_pk_bar',t_w_pk_bar,'t_w_dic[od_id]',t_w_dic[od_id])
 
     #  the mean ridepooling cost between each OD pair
-    def p_w_function(demand, solo_price):
-        return demand * solo_price
+    def p_w_function(theta, solo_price):
+        return theta * solo_price
 
     C_w_dic = {}
 
@@ -323,8 +343,9 @@ while outer_iter_num < params['outer_max_iter_time'] and error > params['outer_c
         p_w_function(seekers[od_id]['lambda'], 1) + params['delta']
 
     # ridepooling demand rate between OD pair
-    def f_w_function(C_w):
-        return C_w 
+    def f_w_function(C_w ):
+        k = 0.1
+        return  np.exp(-k*C_w)
 
     # 不动点更新
     for od_id in OD_dict.keys():
@@ -339,8 +360,8 @@ while outer_iter_num < params['outer_max_iter_time'] and error > params['outer_c
         outer_all_steps.append([np.max(lambda_w_step), np.max(t_pk_w_step)])
         outer_error = np.max(outer_all_steps[len(outer_all_steps) - 1])
     outer_iter_end_time = time.time()
-    print("\nConverge! It costs:", outer_iter_end_time - outer_iter_start_time)
-    print("The average time of iteration:", (outer_iter_end_time - outer_iter_start_time) / outer_iter_num)
+    print("\nouter Converge! It costs:", outer_iter_end_time - outer_iter_start_time)
+    print("The average time of outer iteration:", (outer_iter_end_time - outer_iter_start_time) / outer_iter_num)
 
 
 # ---------- Save the prediction result to csv ----------
@@ -349,8 +370,17 @@ result = pd.DataFrame.from_dict(seekers, orient='index').loc[:, [
     "matching_prob", "ride_distance", "detour_distance", "shared_distance", "saved_distance",
     "ride_distance_for_taker", "detour_distance_for_taker", "shared_distance_for_taker", "saved_distance_for_taker",
     "ride_distance_for_seeker", "detour_distance_for_seeker", "shared_distance_for_seeker", "saved_distance_for_seeker"]]
+# 将字典转换为 DataFrame
+df_lambda = pd.DataFrame(list(lambda_w_dic.items()), columns=['od_id', 'lambda_w'])
+df_t = pd.DataFrame(list(t_w_dic.items()), columns=['od_id', 'pickup_time'])
+
+# 合并两个 DataFrame，使用 'od_id' 列作为键
+result_df = pd.merge(df_lambda, df_t, on='od_id')
+result_df.rename(columns={'od_id': 'OD_id'}, inplace=True)
+
 result.index.name = "OD_id"
-result.to_csv("result/predict_result.csv")
+merged =  pd.merge(result, result_df, on='OD_id')
+merged.to_csv("result/predict_result.csv")
 
 # ---------- Dump to pickle ----------
 f = open('variables/seekers.pickle', 'wb')

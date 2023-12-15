@@ -16,9 +16,9 @@ if True:
     # ---------- Load data ----------
     with open("tmp/OD.pickle", 'rb') as f:
         OD_dict: dict = pickle.load(f)
-    if len(OD_dict) < params['OD_num']:
-        print("WARNING: The number of OD in OD.pickle is less than that set in settings.py")
-        quit()
+    # if len(OD_dict) < params['OD_num']:
+    #     print("WARNING: The number of OD in OD.pickle is less than that set in settings.py")
+    #     quit()
     with open("tmp/graph.pickle", 'rb') as f:
         G: nx.Graph = pickle.load(f)
 

@@ -50,9 +50,7 @@ print('OD_num',OD_num)
 for i in bar.iter(range(OD_num)):
     OD_dict[int(OD_data.loc[i].loc["OD_id"])] = [int(OD_data.loc[i].loc["origin_id"]),
                                                  int(OD_data.loc[i].loc["destination_id"]),
-                                                 OD_data.loc[i].loc["lambda"],
-                                                 OD_data.loc[i].loc["speed"],
-                                                 OD_data.loc[i].loc["waiting_time"]]  # 列表[起点id，终点id，lambda]
+                                                 OD_data.loc[i].loc["lambda"],]  # 列表[起点id，终点id，lambda]
 
 f = open('tmp/OD.pickle', 'wb')
 pickle.dump(OD_dict, f)

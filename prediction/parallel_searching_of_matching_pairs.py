@@ -21,8 +21,8 @@ if True:
         OD_dict: dict = pickle.load(f)
     with open("tmp/shortest_path.pickle", 'rb') as f:
         path_dict: dict = pickle.load(f)
-    if len(OD_dict) < params['OD_num']:
-        print("WARNING: The number of OD in OD.pickle is less than that set in settings.py")
+    # if len(OD_dict) < params['OD_num']:
+    #     print("WARNING: The number of OD in OD.pickle is less than that set in settings.py")
         # quit()
     with open("tmp/graph.pickle", 'rb') as f:
         G: nx.Graph = pickle.load(f)
@@ -181,7 +181,7 @@ if __name__ == '__main__':
     print("Finish seaching matching pairs:", end_time - start_time)
     # ---------- dump the matching pairs ----------
     result = list(itertools.chain.from_iterable(result))
-    m = pd.DataFrame(result, columns=["seeker_id", "taker_id", "link_idx", "preference", "ride_seeker", "ride_taker", "detour_seeker", "detour_taker", "shared"])
+    m = pd.DataFrame(result, columns=["seeker_id", "taker_id", "link_idx", "preference", "ride_seeker", "ride_taker", "detour_seeker", "detour_taker", "shared",'destination'])
     m.sort_values(by=["seeker_id", "preference"], ascending=[True, False])
     m.to_csv("result/match.csv", index=False)
     print("There are", m.shape[0], "matching pairs in all.")
