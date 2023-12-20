@@ -139,7 +139,18 @@ class Network:
         length,Shortest_path = self.dijkstra(self.edges, O, D)
         return length, Shortest_path[1:] , self.find_length(Shortest_path)
 
-
+    # 返回两点之间的最短路
+    def get_shortest_path_distance(self, O, D):
+        length,Shortest_path = self.dijkstra(self.edges, O, D)
+        return length
+    
+    # 返回任意两点之间的最短路
+    def generate_solo_distance(self,):
+        self.od = pd.read_csv('input/preprocess/OD.csv')
+        self.od['solo_distance'] = self.od.apply(lambda row: self.get_shortest_path_distance(row['origin_id'], row['destination_id']), axis=1)
+        self.od.to_csv('input/OD.csv')
+        return 0
+    
     def test(self):
         order_list = pd.read_csv(
             './input/order.csv')
@@ -168,5 +179,5 @@ class Network:
         # res.to_csv('./input/shortest_path.csv')
 
 
-# net = Network()
-# net.test()
+net = Network()
+net.generate_solo_distance()
