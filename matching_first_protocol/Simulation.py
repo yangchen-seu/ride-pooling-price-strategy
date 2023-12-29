@@ -9,14 +9,24 @@ from common import KM_method
 import Vehicle
 import os
 
+'''
+OD_dict
+0:origin_id
+1:destination_id
+2:lambda
+3:solo_distance
+4:theta
+5:ride_distance
+6:shared_distance
+'''
 
 class Simulation():
     # 输入不同的订单，输出系统的派单结果，以及各种指标
     def __init__(self, cfg) -> None:
         self.cfg = cfg
         self.date = cfg.date
-        self.order_list = pd.read_csv(self.cfg.order_file).sample(frac=cfg.demand_ratio, random_state=1)
-        self.vehicle_num = int(len(self.order_list) / cfg.order_driver_ratio )
+        self.order_list = pd.read_csv(self.cfg.order_file)
+        self.vehicle_num = cfg.driver_num
         self.order_list['beginTime_stamp'] = self.order_list['dwv_order_make_haikou_1.departure_time'].apply(
             lambda x: time.mktime(time.strptime(x, '%Y-%m-%d %H:%M:%S')))
         self.begin_time = time.mktime(time.strptime(
@@ -36,7 +46,7 @@ class Simulation():
         self.pickup_distance_threshold = cfg.pickup_distance_threshold
         self.detour_distance_threshold = cfg.detour_distance_threshold
         self.vehicle_list = []
-        self.visualization_df = pd.DataFrame(columns= ['vehicle_id','vehicle_type','depart_time','arrival_time','O_location','D_location','p1_id','p2_id'] )
+
         self.takers = []
         self.current_seekers = []  # 存储需要匹配的乘客
         self.remain_seekers = []
@@ -67,6 +77,7 @@ class Simulation():
         self.shared_distance_error = []
         self.relative_ride_distance_error = []
         self.relative_shared_distance_error = []
+
 
     def reset(self):
         self.takers = []
@@ -74,18 +85,14 @@ class Simulation():
         self.remain_seekers = []
         self.vehicle_list = []
         self.total_reward = 0
-        self.order_list = pd.read_csv(self.cfg.order_file).sample(frac=self.cfg.demand_ratio, random_state=1)
+        self.order_list =  pd.read_csv(self.cfg.order_file)
         self.order_list['beginTime_stamp'] = self.order_list['dwv_order_make_haikou_1.departure_time'].apply(
             lambda x: time.mktime(time.strptime(x, '%Y-%m-%d %H:%M:%S')))
         self.begin_time = time.mktime(time.strptime(
             self.cfg.date + self.cfg.simulation_begin_time, "%Y-%m-%d %H:%M:%S"))
         self.end_time = time.mktime(time.strptime(
             self.cfg.date + self.cfg.simulation_end_time, "%Y-%m-%d %H:%M:%S"))
-        self.order_list = self.order_list[self.order_list['beginTime_stamp']
-                                          >= self.begin_time]
-        self.order_list = self.order_list[self.order_list['beginTime_stamp']
-                                          <= self.end_time]
-
+        
         self.time_reset()
 
         for i in range(self.vehicle_num):
@@ -109,11 +116,6 @@ class Simulation():
         self.saved_travel_distance = 0
 
         self.carpool_order = []
-        self.ride_distance_error = []
-        self.shared_distance_error = []
-        self.relative_ride_distance_error = []
-        self.relative_shared_distance_error = []
-        self.visualization_df = pd.DataFrame(columns= ['vehicle_id','vehicle_type','depart_time','arrival_time','O_location','D_location','p1_id','p2_id'] )
 
     def time_reset(self):
         # 转换成时间数组
@@ -135,22 +137,33 @@ class Simulation():
         self.current_seekers = []
         self.current_seekers_location = []
         for index, row in current_time_orders.iterrows():
+            od_id = row['OD_id']
             seeker = Seeker.Seeker( row)
-            seeker.set_shortest_path(self.network.get_path(
-                seeker.O_location, seeker.D_location)[0])
+            seeker.od_id = od_id
+            seeker.set_shortest_path(self.get_path(
+                seeker.O_location, seeker.D_location))
             value = self.cfg.unit_distance_value / 1000 * seeker.shortest_distance
             seeker.set_value(value)
-            self.current_seekers.append(seeker)
-            self.current_seekers_location .append(seeker.O_location)
+            seeker.set_discount(self.cfg.OD_dict[od_id][4])
+            prob = seeker.set_probability(self.cfg.OD_dict[od_id])
+            if od_id == 0:
+                print('seeker.id',seeker.id,'prob',prob)
+            np.random.seed(od_id)
+            # print('np.random.rand()',np.random.rand(),' prob', prob,'od_id',od_id)
+            if np.random.rand() < prob:
+                self.current_seekers.append(seeker)
+                self.current_seekers_location .append(seeker.O_location)
         for seeker in self.remain_seekers:
             self.current_seekers.append(seeker)
             self.current_seekers_location .append(seeker.O_location)
 
         start = time.time()
-        reward, done = self.process(self.time)
+        OD_dict, ride_step, shared_step, done = self.process(self.time)
         end = time.time()
         # print('process 用时', end - start)
-        return reward,  done
+        # 更新折扣
+
+        return OD_dict, ride_step, shared_step, done
 
     #
     def process(self, time_, ):
@@ -158,7 +171,8 @@ class Simulation():
         takers = []
         vehicles = []
         seekers = self.current_seekers
-
+        ride_step = []
+        shared_step = []
         if self.time >= time.mktime(time.strptime(self.cfg.date + self.cfg.simulation_end_time, "%Y-%m-%d %H:%M:%S")):
             print('当前episode仿真时间结束,奖励为:', self.total_reward)
 
@@ -168,6 +182,7 @@ class Simulation():
             for order in self.his_order:
                 self.waitingtime.append(order.waitingtime)
                 self.traveltime.append(order.traveltime)
+                
             for order in self.carpool_order:
                 self.detour_distance.append(order.detour)
             self.res['waitingTime'] = np.mean(self.waitingtime)
@@ -186,14 +201,34 @@ class Simulation():
             self.res['response_rate'] = len(list(set(self.his_order))) / len(self.order_list)
             self.res['carpool_rate'] = len(self.carpool_order) / len(self.his_order)
 
+            alpha = 0.1
+            for od_id in self.cfg.OD_dict.keys():
+                tmp = [] 
+                for order in self.his_order:
+                    if order.od_id == od_id:
+                        tmp.append(order)
+
+                shared_distance = 0  
+                ride_distance = 0
+                if tmp:
+                    for order in tmp:
+                        shared_distance += order.shared_distance
+                        ride_distance += order.ride_distance
+                    ride = self.cfg.OD_dict[od_id][5] * alpha + (1 - alpha) * ride_distance / len(tmp)
+                    shared = self.cfg.OD_dict[od_id][6] * alpha + (1 - alpha) * shared_distance / len(tmp)
+                    shared_step.append(abs(self.cfg.OD_dict[od_id][6] - shared))
+                    ride_step.append(abs(self.cfg.OD_dict[od_id][5] - ride))
+                    self.cfg.OD_dict[od_id][6] = shared
+                    self.cfg.OD_dict[od_id][5] = ride
+            print('self.cfg.OD_dict[0][6] in simulation',self.cfg.OD_dict[0][6])
+
             # for system
             folder = 'output/'+self.cfg.date +'/'
             if not os.path.exists(folder):
                 os.makedirs(folder)
-            self.visualization_df.to_csv(folder + 'visualization_df.csv')
             self.save_metric(folder + 'system_metric.pkl')
             self.save_his_order(folder + 'history_order.pkl')
-            return reward, True
+            return self.cfg.OD_dict,ride_step, shared_step, True
         else:
             # print('当前episode仿真时间:',time_)
             # 判断智能体是否能执行动作
@@ -219,7 +254,7 @@ class Simulation():
             #     print('vehicle.target',vehicle.target)
             self.total_reward += reward
 
-            return reward,  False
+            return self.cfg.OD_dict,ride_step, shared_step, False
 
     # 匹配算法，最近距离匹配
     def first_protocol_matching(self, takers, vehicles, seekers):
@@ -304,6 +339,8 @@ class Simulation():
                     taker.order_list[0].ride_distance = self.get_path(
                         taker.order_list[0].O_location, taker.order_list[0].D_location)
                     taker.order_list[0].shared_distance = 0
+                    print('1taker.order_list[0].ride_distance',taker.order_list[0].ride_distance)
+                    print('1taker.order_list[0].shared_distance',taker.order_list[0].shared_distance)
                     self.total_travel_distance += taker.p0_pickup_distance
                     self.total_travel_distance += taker.order_list[0].ride_distance
                     # self.saved_travel_distance += taker.order_list[0].ride_distance
@@ -369,7 +406,7 @@ class Simulation():
                         taker.origin_location = taker.order_list[0].D_location
                         taker.activate_time = self.time
                         # 乘客的行驶距离
-                        taker.order_list[0].ride_distance = taker.drive_distance
+                        taker.order_list[0].ride_distance = taker.order_list[0].shortest_distance
                         taker.order_list[0].shared_distance = 0
                         self.total_travel_distance += taker.p0_pickup_distance
                         self.total_travel_distance += taker.order_list[0].ride_distance
@@ -380,6 +417,9 @@ class Simulation():
                                                     )
 
                         # 完成订单
+                        
+                        # print('2taker.order_list[0].ride_distance',taker.order_list[0].shortest_distance)
+                        # print('2taker.order_list[0].shared_distance',taker.order_list[0].shared_distance)
                         self.his_order.append(taker.order_list[0])
                         taker.order_list = []
                         taker.target = 0  # 变成vehicle
@@ -414,7 +454,7 @@ class Simulation():
                 self.pickup_time.append(pickup_time)
                 taker.p1_pickup_distance = pickup_distance
                 taker.order_list[0].ride_distance += pickup_distance
-
+                
                 self.total_travel_distance += taker.p0_pickup_distance
                 self.total_travel_distance += taker.p1_pickup_distance
 
@@ -482,12 +522,17 @@ class Simulation():
                 taker.order_list[1].ride_distance = p1_invehicle
                 taker.order_list[0].shared_distance = distance[0]
                 taker.order_list[1].shared_distance = distance[0]
+                
+                # print('3taker.order_list[0].ride_distance',taker.order_list[0].ride_distance)
+                # print('3taker.order_list[0].shared_distance',taker.order_list[0].shared_distance)
+                # print('3taker.order_list[1].ride_distance',taker.order_list[1].ride_distance)
+                # print('3taker.order_list[1].shared_distance',taker.order_list[1].shared_distance)
                 self.saved_travel_distance += taker.order_list[1].shortest_distance + taker.order_list[0].shortest_distance - (p0_invehicle + p1_invehicle - distance[0]) 
                 taker.drive_distance += sum(distance)
 
                 # 计算平台收益
                 self.platform_income.append(
-                    self.cfg.discount_factor * (taker.order_list[0].value + taker.order_list[1].value) -
+                    (taker.order_list[0].discount * taker.order_list[0].value +taker.order_list[1].discount *  taker.order_list[1].value) -
                     self.cfg.unit_distance_cost/1000 * taker.drive_distance
                 )
 

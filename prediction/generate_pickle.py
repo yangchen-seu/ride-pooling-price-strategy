@@ -1,3 +1,11 @@
+'''
+Author: error: error: git config user.name & please set dead value or install git && error: git config user.email & please set dead value or install git & please set dead value or install git
+Date: 2023-12-20 03:22:31
+LastEditors: error: error: git config user.name & please set dead value or install git && error: git config user.email & please set dead value or install git & please set dead value or install git
+LastEditTime: 2023-12-20 09:13:56
+FilePath: /yangchen/ridepooling-pricing/ride-pooling-price-strategy/prediction/generate_pickle.py
+Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+'''
 """
 加载数据并缓存为二进制文件
 Sun Nov 28 2021
@@ -22,7 +30,8 @@ node_dict = dict()
 
 for i in bar.iter(range(node_num)):
     node_dict[int(node_data.loc[i].loc["node_id"])] = [node_data.loc[i].loc["x_coord"],
-                                                       node_data.loc[i].loc["y_coord"]]  # 列表[经度，纬度]
+                                                       node_data.loc[i].loc["y_coord"],
+                                                       node_data.loc[i].loc["W_node_id"],]  # 列表[经度，纬度,终点为该点的ODindex]
 
 f = open('tmp/node.pickle', 'wb')
 pickle.dump(node_dict, f)

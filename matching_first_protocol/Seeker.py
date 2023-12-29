@@ -1,14 +1,14 @@
 '''
 Author: error: git config user.name && git config user.email & please set dead value or install git
 Date: 2022-07-03 09:04:17
-LastEditors: yangchen-seu 58383528+yangchen-seu@users.noreply.github.com
-LastEditTime: 2023-01-10 01:16:55
+LastEditors: error: error: git config user.name & please set dead value or install git && error: git config user.email & please set dead value or install git & please set dead value or install git
+LastEditTime: 2023-12-26 09:46:01
 FilePath: /matching/reinforcement learning/Seeker.py
 Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 '''
 
 import time
-import math
+import numpy as np
 
 class Seeker():
 
@@ -41,6 +41,8 @@ class Seeker():
         self.esds = row.saved_distance_for_seeker
         self.esdt = row.saved_distance_for_taker
         self.carpool_target = 0 # 是否会选择拼车
+        self.od_id = 0
+        self.pickup_time = row.pickup_time
 
     def show(self):
         print('self.id', self.id)
@@ -66,7 +68,7 @@ class Seeker():
         print('self.ride_distance ', self.ride_distance)    
 
     def set_delay(self, time):
-        self.k = math.floor((time - self.begin_time_stamp) / 60 )
+        self.k = np.floor((time - self.begin_time_stamp) / 60 )
         self.delay = 1.1 ** self.k
 
     def set_value(self,value):
@@ -84,5 +86,26 @@ class Seeker():
     def set_detour(self,detour):
         self.detour = detour
 
-    def cal_expected_ride_distance_for_wait(self, gamma):
-        self.shared_distance  =self.shared_distance * gamma
+    def cal_expected_ride_distance_for_wait(self):
+        self.shared_distance  =self.shared_distance 
+
+    def set_probability(self, OD_dict):
+        theta = OD_dict[4]
+        A = 1
+        c_0 = 3
+        a = 1
+        beta = 2
+        l = self.shortest_distance / 1000 
+        t_p = 2 if self.waitingtime == 0 else self.waitingtime / 60
+        T_p = OD_dict[5] / 600 # 用时多少min
+        t_s = t_p + 0.5
+        T_s = self.shortest_distance  / 600 # 用时多少m
+        # print('tmp',(A * ((beta* (t_p + T_p) + theta * l * c_0 +a) - (beta * (t_s + T_s) + l * c_0))))
+        # print('theta',theta)
+        return 1 / (1 + np.exp(A * ((beta* (t_p + T_p) + theta * l * c_0 +a) - (beta * (t_s + T_s) + l * c_0))))
+    
+    def set_discount(self,discount):
+        self.discount = discount
+
+    def set_od_id(self, od_id):
+        self.od_id = od_id

@@ -12,8 +12,8 @@ class Network:
     
     # initial 
     def __init__(self) -> None:
-        self.node = pd.read_csv('input\\node.csv')
-        self.link = pd.read_csv('input\\links.csv')
+        self.node = pd.read_csv('./input/node.csv')
+        self.link = pd.read_csv('./input/link.csv')
 
         self.Nodes = {}
         self.edges = []
@@ -146,38 +146,32 @@ class Network:
     
     # 返回任意两点之间的最短路
     def generate_solo_distance(self,):
-        self.od = pd.read_csv('input/preprocess/OD.csv')
+        self.od = pd.read_csv('./input/OD.csv')
         self.od['solo_distance'] = self.od.apply(lambda row: self.get_shortest_path_distance(row['origin_id'], row['destination_id']), axis=1)
         self.od.to_csv('input/OD.csv')
         return 0
     
     def test(self):
         order_list = pd.read_csv(
-            './input/order.csv')
+            './input/orders_predict.csv')
 
         O_locations = order_list['O_location'].unique()
         D_locations = order_list['D_location'].unique()
-        length, Shortest_path, shortest_path_length = self.get_path(O_locations[0], D_locations[0])
-        print(length)
-        print(len(shortest_path_length))
-        print(sum(shortest_path_length))
-        print(len(Shortest_path))
-        print(shortest_path_length)
-        print(Shortest_path)
 
-        # locations =[*O_locations ,*D_locations]
-        # from tqdm import tqdm
-        # O = []
-        # D = []
-        # distance = []
-        # for i in tqdm(range(len(locations))):
-        #     for j in range(len(locations)):
-        #         O.append(locations[i])
-        #         D.append(locations[j])
-        #         distance.append(self.get_path(locations[i], locations[j]))
-        # res = pd.DataFrame({'O':O, 'D':D, 'distance':distance})
-        # res.to_csv('./input/shortest_path.csv')
+        locations =[*O_locations ,*D_locations]
+        from tqdm import tqdm
+        O = []
+        D = []
+        distance = []
+        for i in tqdm(range(len(locations))):
+            for j in range(len(locations)):
+                O.append(locations[i])
+                D.append(locations[j])
+                distance.append(self.get_path(locations[i], locations[j]))
+        res = pd.DataFrame({'O':O, 'D':D, 'distance':distance})
+        res.to_csv('./input/shortest_path.csv')
 
 
-net = Network()
-net.generate_solo_distance()
+# net = Network()
+# net.test()
+# net.generate_solo_distance()

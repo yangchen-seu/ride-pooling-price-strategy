@@ -3,7 +3,7 @@
 Tues Dec 7 2021
 Copyright (c) 2021 Yuzhen FENG
 """
-from os import error
+
 import pickle
 import pandas as pd
 import numpy as np
@@ -12,7 +12,7 @@ import seaborn as sns
 sns.set()
 import time
 import os
-from progress.bar import Bar
+
 from settings import params
 import logging
 
@@ -20,7 +20,7 @@ import logging
 logging.basicConfig(filename='print.log', level=logging.DEBUG)
 
 import networkx as nx
-from multiprocessing import Pool
+
 
 if True:
     with open("tmp/graph.pickle", 'rb') as f:
@@ -120,7 +120,8 @@ class Predict():
 
             lambda_w_step = []
             t_pk_w_step = []
-            print(outer_iter_num % 10, end='', flush=True)
+            # print(outer_iter_num % 10, end='', flush=True)
+            print('outer_iter_num',outer_iter_num,'outer_error',outer_error)
             # logging.info('outer_iter_num',outer_iter_num % 10)
 
             inner_iter_start_time = time.time()
@@ -184,10 +185,11 @@ class Predict():
                     all_steps.append([np.max(lambda_taker_step), np.max(p_seeker_step), np.max(p_taker_step), np.max(rho_taker_step)])
                     error = np.max(all_steps[len(all_steps) - 1])
             inner_iter_end_time = time.time()
-            print("\n inner Converge! It costs:", inner_iter_end_time - inner_iter_start_time)
-            print("The average time of inner iteration:", (inner_iter_end_time - inner_iter_start_time) / inner_iter_num)
+            # print("\n inner Converge! It costs:", inner_iter_end_time - inner_iter_start_time)
+            # print("The average time of inner iteration:", (inner_iter_end_time - inner_iter_start_time) / inner_iter_num)
 
             # ---------- Calculate the prediction result ----------
+
             for seeker_id in seekers.keys():
                 seekers[seeker_id]["matching_prob"] = 1 - takers[seeker_id][len(takers[seeker_id]) - 1]["lambda_taker"] * (1 - takers[seeker_id][len(takers[seeker_id]) - 1]["p_taker"]) / seekers[seeker_id]["lambda"]
             for seeker_id, takers_of_seeker in matches.items():
@@ -254,17 +256,14 @@ class Predict():
 
             # ---------- calculate the mean vacant vehicle pick-up time of each OD pair ----------
             # the stopping rate of vehicles at nodes i
+
             v_dic = {}
             for node_id in node_dict.keys():
-                W_node_id = []
-                for OD_index, value in OD_dict.items():
-                    if value[1] == node_id:
-                        # print('OD_index',OD_index,'value',value)
-                        W_node_id.append(OD_index)
-                M_node_id = match_df[match_df['destination'] == node_id]
-
+                if pd.isna(node_dict[node_id][2]):
+                    v_dic[node_id] = 0
+                    continue
+                W_node_id = list(map(int,node_dict[node_id][2].split(',')))
                 v_i = 0
-
                 for OD_index in W_node_id:
                     P_w = seekers[OD_index]['matching_prob']
                     lambda_w = seekers[OD_index]['lambda']
@@ -279,6 +278,7 @@ class Predict():
                 v_dic[node_id] = v_i
                 # logging.info('v_dic[node_id]',v_dic[node_id],'node_id',node_id,'W_node_id',W_node_id,'M_node_id',M_node_id)
             # the total number of vacant vehicles at each instant
+
             tmp = 0
 
             for od_id in OD_dict.keys():
@@ -365,12 +365,11 @@ class Predict():
 
 
             outer_iter_num += 1
-            if outer_iter_num >= params["min_iter_time"]:
-                outer_all_steps.append([np.max(lambda_w_step), np.max(t_pk_w_step)])
-                outer_error = np.max(outer_all_steps[len(outer_all_steps) - 1])
-            outer_iter_end_time = time.time()
-            print("\nouter Converge! It costs:", outer_iter_end_time - outer_iter_start_time)
-            print("The average time of outer iteration:", (outer_iter_end_time - outer_iter_start_time) / outer_iter_num)
+            outer_all_steps.append([np.max(lambda_w_step), np.max(t_pk_w_step)])
+            outer_error = np.max(outer_all_steps[len(outer_all_steps) - 1])
+        outer_iter_end_time = time.time()
+        print("\nouter Converge! It costs:", outer_iter_end_time - outer_iter_start_time)
+        print("The average time of outer iteration:", (outer_iter_end_time - outer_iter_start_time) / outer_iter_num)
 
 
         # ---------- Save the prediction result to csv ----------
@@ -412,4 +411,7 @@ class Predict():
         for od_id  in OD_dict.keys():
             platform_profit += (OD_dict[od_id][4] * OD_dict[od_id][3] /1000 * 2.5  \
                                 - 2 * (seekers[od_id]['ride_distance'] - seekers[od_id]['shared_distance'] / 2)  /1000 )* lambda_w_dic[od_id]
+            # print('od_id{},income{},cost:{}'.format(od_id,OD_dict[od_id][4] * OD_dict[od_id][3] /1000 * 2.5, 2 * (seekers[od_id]['ride_distance'] - seekers[od_id]['shared_distance'] / 2)  /1000))
+            # print('od_id{},solo_dis{},pool_dis:{}'.format(od_id,OD_dict[od_id][3], seekers[od_id]['ride_distance'] ))
+            # print('od_id{},discount{},shared_dis:{}'.format(od_id,OD_dict[od_id][4], seekers[od_id]['shared_distance'] ))
         return platform_profit,lambda_w_dic

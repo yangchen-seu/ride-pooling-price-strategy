@@ -1,3 +1,11 @@
+'''
+Author: error: error: git config user.name & please set dead value or install git && error: git config user.email & please set dead value or install git & please set dead value or install git
+Date: 2023-12-20 03:22:31
+LastEditors: error: error: git config user.name & please set dead value or install git && error: git config user.email & please set dead value or install git & please set dead value or install git
+LastEditTime: 2023-12-20 08:23:25
+FilePath: /yangchen/ridepooling-pricing/ride-pooling-price-strategy/prediction/settings.py
+Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+'''
 """
 配置文件
 Sun Nov 28 2021
@@ -21,7 +29,7 @@ params = {
     'max_iter_time': 200,
     "min_iter_time": 5,
     'convergent_condition': 1e-6,
-    'outer_max_iter_time': 200,
+    'outer_max_iter_time': 100,
     'outer_convergent_condition': 1e-2,
     'M': 1e6,
     'epsilon': 1e-6,
