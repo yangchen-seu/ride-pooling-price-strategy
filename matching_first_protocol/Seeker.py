@@ -2,7 +2,7 @@
 Author: error: git config user.name && git config user.email & please set dead value or install git
 Date: 2022-07-03 09:04:17
 LastEditors: error: error: git config user.name & please set dead value or install git && error: git config user.email & please set dead value or install git & please set dead value or install git
-LastEditTime: 2023-12-26 09:46:01
+LastEditTime: 2024-01-10 03:16:08
 FilePath: /matching/reinforcement learning/Seeker.py
 Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 '''
@@ -80,6 +80,9 @@ class Seeker():
     def set_waitingtime(self, waitingtime):
         self.waitingtime = waitingtime
 
+    def set_pickuptime(self, pickup_time):
+        self.pickup_time = pickup_time
+
     def set_traveltime(self,traveltime):
         self.traveltime = traveltime
 
@@ -91,12 +94,12 @@ class Seeker():
 
     def set_probability(self, OD_dict):
         theta = OD_dict[4]
-        A = 1
+        A = 1 # 2.05
         c_0 = 3
         a = 1
         beta = 2
         l = self.shortest_distance / 1000 
-        t_p = 2 if self.waitingtime == 0 else self.waitingtime / 60
+        t_p = 2  # if self.waitingtime == 0 else self.waitingtime / 60
         T_p = OD_dict[5] / 600 # 用时多少min
         t_s = t_p + 0.5
         T_s = self.shortest_distance  / 600 # 用时多少m

@@ -1,7 +1,7 @@
 '''
 Author: your name
 Date: 2021-12-07 21:36:06
-LastEditTime: 2023-12-26 08:17:21
+LastEditTime: 2024-01-15 17:20:19
 LastEditors: error: error: git config user.name & please set dead value or install git && error: git config user.email & please set dead value or install git & please set dead value or install git
 Description: 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 FilePath: \强化学习网约车\Reinforcementlearning\Config.py
@@ -30,6 +30,8 @@ class Config:
         self.unit_time_value = 1.5/120 # 每秒的行驶费用
 
         self.driver_num = 300
+        self.order_driver_ratio = 100 / 25
+        self.driver_ratio_target = False
         # self.progress_target =  True #  False # True
         self.progress_target =  False # True
 
@@ -43,3 +45,7 @@ class Config:
         self.reposition_time_threshold = 120
 
         self.OD_dict = {}
+        
+        self.method = 'default'
+        # self.randomness = False
+        self.randomness = True

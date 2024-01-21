@@ -5,7 +5,6 @@ import numpy as np
 import Network as net
 import Seeker
 import random
-from common import KM_method
 import Vehicle
 import os
 
@@ -24,9 +23,14 @@ class Simulation():
     # 输入不同的订单，输出系统的派单结果，以及各种指标
     def __init__(self, cfg) -> None:
         self.cfg = cfg
+        # self.cfg.randomness = True
         self.date = cfg.date
         self.order_list = pd.read_csv(self.cfg.order_file)
-        self.vehicle_num = cfg.driver_num
+        if not cfg.driver_ratio_target:
+            self.vehicle_num = cfg.driver_num
+        else:
+            self.vehicle_num = int(len(self.order_list) /  cfg.order_driver_ratio )
+        print('self.vehicle_num',self.vehicle_num,'cfg.order_driver_ratio',cfg.order_driver_ratio )
         self.order_list['beginTime_stamp'] = self.order_list['dwv_order_make_haikou_1.departure_time'].apply(
             lambda x: time.mktime(time.strptime(x, '%Y-%m-%d %H:%M:%S')))
         self.begin_time = time.mktime(time.strptime(
@@ -53,7 +57,8 @@ class Simulation():
         self.time_reset()
 
         for i in range(self.vehicle_num):
-            random.seed(i)
+            if not self.cfg.randomness:
+                random.seed(i)
             location = random.choice(self.locations)
             vehicle = Vehicle.Vehicle(i, location, self.cfg)
             self.vehicle_list.append(vehicle)
@@ -67,17 +72,19 @@ class Simulation():
         self.traveltime = []
         self.pickup_time = []
         self.platform_income = []
+        self.driver_income = []
         self.shared_distance = []
         self.reposition_time = []
         self.total_travel_distance = 0
-        self.saved_travel_distance = 0
-
+        self.saved_travel_distance = []
+        self.waitingtime_vacant = []
+        self.waitingtime_pool = []
+        
         self.carpool_order = []
-        self.ride_distance_error = []
-        self.shared_distance_error = []
-        self.relative_ride_distance_error = []
-        self.relative_shared_distance_error = []
+        self.discount = []
+        self.response_drivers = []
 
+        self.pool_passengers = 0
 
     def reset(self):
         self.takers = []
@@ -96,7 +103,8 @@ class Simulation():
         self.time_reset()
 
         for i in range(self.vehicle_num):
-            random.seed(i)
+            if not self.cfg.randomness:
+                random.seed(i)
             location = random.choice(self.locations)
             vehicle = Vehicle.Vehicle(i, location, self.cfg)
             self.vehicle_list.append(vehicle)
@@ -110,12 +118,19 @@ class Simulation():
         self.traveltime = []
         self.pickup_time = []
         self.platform_income = []
+        self.driver_income = []
         self.shared_distance = []
         self.reposition_time = []
         self.total_travel_distance = 0
-        self.saved_travel_distance = 0
-
+        self.saved_travel_distance = []
+        self.waitingtime_vacant = []
+        self.waitingtime_pool = []
+        
         self.carpool_order = []
+        self.discount = []
+        self.response_drivers = []
+
+        self.pool_passengers = 0
 
     def time_reset(self):
         # 转换成时间数组
@@ -146,13 +161,15 @@ class Simulation():
             seeker.set_value(value)
             seeker.set_discount(self.cfg.OD_dict[od_id][4])
             prob = seeker.set_probability(self.cfg.OD_dict[od_id])
-            if od_id == 0:
-                print('seeker.id',seeker.id,'prob',prob)
-            np.random.seed(od_id)
+            # if od_id == 0:
+            #     print('seeker.id',seeker.id,'prob',prob)
+            if not self.cfg.randomness:
+                np.random.seed(od_id)
             # print('np.random.rand()',np.random.rand(),' prob', prob,'od_id',od_id)
             if np.random.rand() < prob:
                 self.current_seekers.append(seeker)
                 self.current_seekers_location .append(seeker.O_location)
+                self.pool_passengers += 1
         for seeker in self.remain_seekers:
             self.current_seekers.append(seeker)
             self.current_seekers_location .append(seeker.O_location)
@@ -174,33 +191,80 @@ class Simulation():
         ride_step = []
         shared_step = []
         if self.time >= time.mktime(time.strptime(self.cfg.date + self.cfg.simulation_end_time, "%Y-%m-%d %H:%M:%S")):
-            print('当前episode仿真时间结束,奖励为:', self.total_reward)
+            # print('当前episode仿真时间结束,奖励为:', self.total_reward)
 
             # 计算系统指标
             self.res = {}
+            self.res_dic = {}
             # for seekers
             for order in self.his_order:
+                if order in self.carpool_order:
+                    if order.detour < self.cfg.detour_distance_threshold:
+                        self.detour_distance.append(order.detour )
+                    self.waitingtime_pool.append(order.waitingtime + order.pickup_time)
+                else:
+                    self.waitingtime_vacant.append(order.waitingtime + order.pickup_time)
+                    
                 self.waitingtime.append(order.waitingtime)
                 self.traveltime.append(order.traveltime)
+                self.discount.append(order.discount)
                 
-            for order in self.carpool_order:
-                self.detour_distance.append(order.detour)
+                
             self.res['waitingTime'] = np.mean(self.waitingtime)
+            self.res_dic['waitingTime'] = self.waitingtime
+            
+            self.res['waitingTime_vacant'] = np.mean(self.waitingtime_vacant)
+            self.res['waitingTime_pool'] = np.mean(self.waitingtime_pool)
             self.res['traveltime'] = np.mean(self.traveltime)
+            self.res_dic['traveltime'] = self.traveltime
+            
             self.res['detour_distance'] = np.mean(self.detour_distance)
+            self.res_dic['detour_distance'] = self.detour_distance
+            
 
             # for vehicle
             self.res['pickup_time'] = np.mean(self.pickup_time)
+            self.res_dic['pickup_time'] = self.pickup_time
+            
+            
             self.res['shared_distance'] = np.mean(self.shared_distance)
+            self.res_dic['shared_distance'] = self.shared_distance
+            
+            
             self.res['total_ride_distance'] = np.sum(self.total_travel_distance)
             # self.res['saved_ride_distance'] = np.sum(self.saved_travel_distance) - np.sum(self.total_travel_distance)
             self.res['saved_ride_distance'] = np.sum(
                 self.saved_travel_distance)
+            self.res_dic['saved_ride_distance'] = self.saved_travel_distance
+            
 
             self.res['platform_income'] = np.sum(self.platform_income)
+            self.res_dic['platform_income'] = self.platform_income
+            
+            self.res_dic['Discount ratio'] = self.discount
+            
             self.res['response_rate'] = len(list(set(self.his_order))) / len(self.order_list)
             self.res['carpool_rate'] = len(self.carpool_order) / len(self.his_order)
 
+            self.save_figure('Waiting Time',self.waitingtime)
+            self.save_figure('Waiting Time pool',self.waitingtime_pool)
+            self.save_figure('Waiting Time failed pool',self.waitingtime_vacant)
+            self.save_figure('Travel Time',self.traveltime,)
+            self.save_figure('Pickup Time',self.pickup_time,)
+            self.save_figure('Profit',self.platform_income,)
+            print('mean Driver income',np.mean(self.driver_income,))
+            print('total Driver income',np.sum(self.driver_income,))
+            print('pool rate', self.pool_passengers / len(self.order_list))
+            print('total shared distance', np.sum(self.shared_distance))
+            print('total detour distance', np.sum(self.detour_distance))
+            print('Total driver occupied time',np.sum(self.pickup_time) + np.sum(self.traveltime))
+            print('Number of finish service driver',len(list(set(self.response_drivers))))
+            self.save_figure('Driver income',self.driver_income,)
+            self.save_figure('Distance Savings',self.saved_travel_distance,)
+            self.save_figure('Shared Distance',self.shared_distance,)
+            self.save_figure('Detour Distance',self.detour_distance,)
+            self.save_figure('Discount ratio',self.discount,)
+            
             alpha = 0.1
             for od_id in self.cfg.OD_dict.keys():
                 tmp = [] 
@@ -220,13 +284,13 @@ class Simulation():
                     ride_step.append(abs(self.cfg.OD_dict[od_id][5] - ride))
                     self.cfg.OD_dict[od_id][6] = shared
                     self.cfg.OD_dict[od_id][5] = ride
-            print('self.cfg.OD_dict[0][6] in simulation',self.cfg.OD_dict[0][6])
+            # print('self.cfg.OD_dict[0][6] in simulation',self.cfg.OD_dict[0][6])
 
             # for system
             folder = 'output/'+self.cfg.date +'/'
             if not os.path.exists(folder):
                 os.makedirs(folder)
-            self.save_metric(folder + 'system_metric.pkl')
+            self.save_metric(folder + 'system_metric_{}.pkl'.format(self.cfg.method))
             self.save_his_order(folder + 'history_order.pkl')
             return self.cfg.OD_dict,ride_step, shared_step, True
         else:
@@ -258,7 +322,7 @@ class Simulation():
 
     # 匹配算法，最近距离匹配
     def first_protocol_matching(self, takers, vehicles, seekers):
-        if len(seekers) == 0:
+        if len(seekers) == 0 or len(takers) + len(vehicles) == 0:
             return 0
         import time
         start = time.time()
@@ -268,41 +332,69 @@ class Simulation():
             location = seeker.O_location
             zone = self.network.Nodes[location].getZone()
             nodes = zone.nodes
-            match = {}
+            pool_match = {}
+            vacant_match = {}
             for taker in takers:
                 if taker.location in nodes:
-                    match[taker] = self.calTakersWeights(seeker, taker)
+                    pool_match[taker] = self.calTakersWeights(seeker, taker)
 
             for vehicle in vehicles:
                 if vehicle.location in nodes:
-                    match[vehicle] = self.calVehiclesWeights(seeker, vehicle)
+                    vacant_match[vehicle] = self.calVehiclesWeights(seeker, vehicle)
 
             # 計算匹配結果
-            if not match.values():
-                seeker.response_taget = 0
-            elif max(match.values()) == self.cfg.dead_value:
-                seeker.response_taget = 0
-            else:
-                weight = max(match.values())
-                seeker.response_taget = 1
-                for key in match.keys():
-                    if match[key] == weight: # key 接到乘客
-                        if key.target == 1: # taker
-                            key.order_list.append(seeker)
-                            takers.remove(key)
-                            # 记录目的地
-                            pickup_distance, key.path, key.path_length = self.network.get_path(
-                                key.location, key.order_list[1].O_location)
+            # 无车可用
+            if not pool_match :
 
-                        else: # vacant vehicle
+                if not vacant_match:
+                    seeker.response_taget = 0
+
+                elif max(vacant_match.values()) == self.cfg.dead_value:
+                    seeker.response_taget = 0
+
+                else:
+                 # 派空车
+                    weight = max(vacant_match.values())
+
+                    seeker.response_taget = 1
+                    for key in vacant_match.keys():
+                        if vacant_match[key] == weight: # key 接到乘客
                             key.order_list.append(seeker)
                             vehicles.remove(key)
-                            # 更新目的地
-                            pickup_distance, key.path, key.path_length \
-                            = self.network.get_path(
-                                key.location, key.order_list[0].O_location)
+                            # 记录seeker等待时间
+                            seeker.set_waitingtime(
+                                        self.time - seeker.begin_time_stamp)
+                            seeker.response_target = 1   
+                            break                     
+                    
+            # 先派载人车
+            elif max(pool_match.values()) == self.cfg.dead_value:
+                # 派空车
+                if not vacant_match:
+                    seeker.response_taget = 0
 
+                else:
+                    weight = max(vacant_match.values())
 
+                    seeker.response_taget = 1
+                    for key in vacant_match.keys():
+                        if vacant_match[key] == weight: # key 接到乘客
+                            key.order_list.append(seeker)
+                            vehicles.remove(key)
+                            # 记录seeker等待时间
+                            seeker.set_waitingtime(
+                                        self.time - seeker.begin_time_stamp)
+                            seeker.response_target = 1   
+                            break                     
+                    
+            else:
+
+                weight = max(pool_match.values())
+                seeker.response_taget = 1
+                for key in pool_match.keys():
+                    if pool_match[key] == weight: # key 接到乘客
+                        key.order_list.append(seeker)
+                        takers.remove(key)
                         # 记录seeker等待时间
                         seeker.set_waitingtime(
                                 self.time - seeker.begin_time_stamp)
@@ -313,10 +405,6 @@ class Simulation():
         for vehicle in vehicles:
             if not vehicle.order_list: # 沒接到乘客
                 vehicle.reposition_target = 1
-                if not vehicle.path:
-                    repostion_location = random.choice(self.locations)
-                    distance, vehicle.path, vehicle.path_length = self.network.get_path(
-                            vehicle.location, repostion_location)
 
         for taker in takers:
             if len(taker.order_list) != 2: # 沒接到乘客
@@ -339,16 +427,17 @@ class Simulation():
                     taker.order_list[0].ride_distance = self.get_path(
                         taker.order_list[0].O_location, taker.order_list[0].D_location)
                     taker.order_list[0].shared_distance = 0
-                    print('1taker.order_list[0].ride_distance',taker.order_list[0].ride_distance)
-                    print('1taker.order_list[0].shared_distance',taker.order_list[0].shared_distance)
+                    # print('1taker.order_list[0].ride_distance',taker.order_list[0].ride_distance)
+                    # print('1taker.order_list[0].shared_distance',taker.order_list[0].shared_distance)
                     self.total_travel_distance += taker.p0_pickup_distance
                     self.total_travel_distance += taker.order_list[0].ride_distance
                     # self.saved_travel_distance += taker.order_list[0].ride_distance
 
-                    self.platform_income.append(
-                        taker.order_list[0].value -
-                        self.cfg.unit_distance_cost/1000 * taker.drive_distance
-                    )
+                    driver_income = self.cfg.unit_distance_cost/1000 * taker.drive_distance
+                    # driver_income = taker.order_list[0].value * 0.8
+                    self.platform_income.append(taker.order_list[0].value - driver_income)
+                    self.driver_income.append(driver_income)
+                    self.response_drivers.append(taker.id)
                     # print('order.value{},driver_distance{},income{}:'.format(taker.order_list[0].value,taker.drive_distance,self.platform_income[-1]))
                     # 更新智能体可以采取动作的时间
                     taker.activate_time += self.cfg.unit_driving_time * travel_distance
@@ -368,66 +457,53 @@ class Simulation():
                 # 没超出匹配时间
                 # 判断是否接到第一个乘客
                 elif taker.origin_location != taker.order_list[0].O_location:
-                    pickup_distance, taker.path, taker.path_length = self.network.get_path(
-                        taker.location, taker.order_list[0].O_location)
-                    if taker.path:
-                        # 还没到下一个节点
-                        if self.time - taker.activate_time > self.cfg.unit_driving_time * taker.path_length[0]:
-                            taker.location = taker.path.pop()
-                            taker.path_length.pop()
-                            taker.activate_time = self.time
-                            taker.p0_pickup_distance += pickup_distance
-                            taker.drive_distance += pickup_distance
-
-                    else:
-                        # 接到乘客了
-                        taker.p0_pickup_distance += pickup_distance
-                        pickup_time = self.cfg.unit_driving_time * taker.p0_pickup_distance
-                        self.pickup_time.append(pickup_time)
-                        taker.location = taker.order_list[0].O_location
-                        taker.activate_time = self.time
-                        taker.origin_location = taker.order_list[0].O_location
+                    pickup_distance = self.get_path(
+                        taker.origin_location, taker.order_list[0].O_location)
+                    taker.p0_pickup_distance += pickup_distance
+                    pickup_time = self.cfg.unit_driving_time * taker.p0_pickup_distance
+                    # print('3pickup_distance',pickup_distance,taker.p0_pickup_distance)
+                    # print('3pickup time',pickup_time)
+                    taker.order_list[0].set_pickuptime(pickup_time)
+                    self.pickup_time.append(pickup_time)
+                    taker.location = taker.order_list[0].O_location
+                    taker.activate_time = self.time
+                    taker.origin_location = taker.order_list[0].O_location
                 
                 # 没匹配到其他乘客，但接到p1了，开始在路上派送
                 else:
-                    distance, taker.path, taker.path_length = self.network.get_path(
+                    distance = self.get_path(
                         taker.location, taker.order_list[0].D_location)
-                    # 没送到目的地
-                    if taker.path:
-                        if self.time - taker.activate_time > self.cfg.unit_driving_time * taker.path_length[0]:
-                            taker.location = taker.path.pop()
-                            taker.path_length.pop()
-                            taker.drive_distance += distance
 
-                    else:
-                        # 送到目的地了
+                    taker.location = taker.order_list[0].D_location
+                    taker.origin_location = taker.order_list[0].D_location
+                    taker.activate_time = self.time
+                    # 乘客的行驶距离
+                    taker.order_list[0].ride_distance = taker.order_list[0].shortest_distance
+                    taker.order_list[0].shared_distance = 0
+                    self.total_travel_distance += taker.p0_pickup_distance
+                    self.total_travel_distance += taker.order_list[0].ride_distance
+                    # self.saved_travel_distance += taker.order_list[0].ride_distance
+                    # 计算平台收益
+                    taker.drive_distance = taker.p0_pickup_distance + taker.order_list[0].ride_distance
+                    driver_income = self.cfg.unit_distance_cost/1000 * taker.drive_distance
+                    # driver_income = taker.order_list[0].value * 0.8
+                    self.platform_income.append(taker.order_list[0].value - driver_income)
+                    self.driver_income.append(driver_income)
 
-                        taker.location = taker.order_list[0].D_location
-                        taker.origin_location = taker.order_list[0].D_location
-                        taker.activate_time = self.time
-                        # 乘客的行驶距离
-                        taker.order_list[0].ride_distance = taker.order_list[0].shortest_distance
-                        taker.order_list[0].shared_distance = 0
-                        self.total_travel_distance += taker.p0_pickup_distance
-                        self.total_travel_distance += taker.order_list[0].ride_distance
-                        # self.saved_travel_distance += taker.order_list[0].ride_distance
-                        # 计算平台收益
-                        self.platform_income.append(taker.order_list[0].value -
-                                                    self.cfg.unit_distance_cost/1000 * taker.drive_distance
-                                                    )
-
-                        # 完成订单
-                        
-                        # print('2taker.order_list[0].ride_distance',taker.order_list[0].shortest_distance)
-                        # print('2taker.order_list[0].shared_distance',taker.order_list[0].shared_distance)
-                        self.his_order.append(taker.order_list[0])
-                        taker.order_list = []
-                        taker.target = 0  # 变成vehicle
-                        taker.drive_distance = 0
-                        taker.reward = 0
-                        taker.p0_pickup_distance = 0
-                        taker.path = []
-                        taker.path_length = []
+                    # 完成订单
+                    taker.order_list[0].set_traveltime(
+                    self.cfg.unit_driving_time *  taker.order_list[0].shortest_distance)
+                    # print('2taker.order_list[0].ride_distance',taker.order_list[0].shortest_distance)
+                    # print('2taker.order_list[0].shared_distance',taker.order_list[0].shared_distance)
+                    self.his_order.append(taker.order_list[0])
+                    self.response_drivers.append(taker.id)
+                    taker.order_list = []
+                    taker.target = 0  # 变成vehicle
+                    taker.drive_distance = 0
+                    taker.reward = 0
+                    taker.p0_pickup_distance = 0
+                    taker.path = []
+                    taker.path_length = []
 
             # 当前匹配有新乘客
             else:
@@ -440,17 +516,23 @@ class Simulation():
                     taker.p0_pickup_distance += pickup_distance
                     pickup_time = self.cfg.unit_driving_time * taker.p0_pickup_distance
                     taker.drive_distance += pickup_distance
+                    # print('1pickup time',pickup_time)
+                    taker.order_list[0].set_pickuptime(pickup_time)
+                    
                     self.pickup_time.append(pickup_time)
 
                 # 接新乘客
-                pickup_distance, taker.path, taker.path_length \
-                    = self.network.get_path(
+                pickup_distance\
+                    = self.get_path(
                         taker.order_list[0].O_location, taker.order_list[1].O_location)
 
                 pickup_time = self.cfg.unit_driving_time * pickup_distance
+                
                 # print('pickup_time',pickup_time)
-
+                taker.order_list[1].set_pickuptime(pickup_time)
+                
                 taker.drive_distance += pickup_distance
+                # print('2pickup time',pickup_time)
                 self.pickup_time.append(pickup_time)
                 taker.p1_pickup_distance = pickup_distance
                 taker.order_list[0].ride_distance += pickup_distance
@@ -522,20 +604,21 @@ class Simulation():
                 taker.order_list[1].ride_distance = p1_invehicle
                 taker.order_list[0].shared_distance = distance[0]
                 taker.order_list[1].shared_distance = distance[0]
-                
+                self.response_drivers.append(taker.id)
                 # print('3taker.order_list[0].ride_distance',taker.order_list[0].ride_distance)
                 # print('3taker.order_list[0].shared_distance',taker.order_list[0].shared_distance)
                 # print('3taker.order_list[1].ride_distance',taker.order_list[1].ride_distance)
                 # print('3taker.order_list[1].shared_distance',taker.order_list[1].shared_distance)
-                self.saved_travel_distance += taker.order_list[1].shortest_distance + taker.order_list[0].shortest_distance - (p0_invehicle + p1_invehicle - distance[0]) 
+                self.saved_travel_distance .append( taker.order_list[1].shortest_distance + taker.order_list[0].shortest_distance - (p0_invehicle + p1_invehicle - distance[0]) )
                 taker.drive_distance += sum(distance)
 
                 # 计算平台收益
+                driver_income = self.cfg.unit_distance_cost/1000 * taker.drive_distance
+                # driver_income = taker.order_list[0].value * 0.8
                 self.platform_income.append(
-                    (taker.order_list[0].discount * taker.order_list[0].value +taker.order_list[1].discount *  taker.order_list[1].value) -
-                    self.cfg.unit_distance_cost/1000 * taker.drive_distance
-                )
-
+                    (taker.order_list[0].discount * taker.order_list[0].value +taker.order_list[1].discount *  taker.order_list[1].value) -  driver_income)
+                
+                self.driver_income.append(driver_income)
                 # 计算拼车距离
                 self.shared_distance.append(distance[0])
                 # 更新智能体可以采取动作的时间
@@ -559,22 +642,12 @@ class Simulation():
 
         for vehicle in vehicles:
             if vehicle.reposition_target == 1:
-                # 更新空车司机位置   
-                if vehicle.path:
-                    # 没到目的地
-                    if self.time > vehicle.reposition_time + self.cfg.unit_driving_time * vehicle.path_length[0]:
-                        vehicle.reposition_time = self.time
-                        vehicle.location = vehicle.path.pop()
-                        vehicle.path_length.pop()
-                else:
-                        # 到目的地了
-                    vehicle.reposition_time = self.time
-
+                continue
             else:
                 vehicle.target = 1  # 变成taker
                 vehicle.origin_location = vehicle.location
                 # 接新乘客
-                pickup_distance, vehicle.path, vehicle.path_length = self.network.get_path(
+                pickup_distance = self.get_path(
                     vehicle.location, vehicle.order_list[0].O_location)
 
 
@@ -596,7 +669,26 @@ class Simulation():
         pick_up_distance = self.get_path(
             seeker.O_location, taker.order_list[0].O_location)
         
-        return pick_up_distance
+        fifo, distance = self.is_fifo(taker.order_list[0], seeker)
+
+        if fifo:
+            p0_invehicle = pick_up_distance + distance[0]
+            p1_invehicle = sum(distance)
+            p0_detour = p0_invehicle - taker.order_list[0].shortest_distance
+            p1_detour = p1_invehicle - seeker.shortest_distance
+            
+
+        else:
+            p0_invehicle = pick_up_distance + sum(distance)
+            p1_invehicle = distance[0]
+            p0_detour = p0_invehicle - taker.order_list[0].shortest_distance
+            p1_detour = p1_invehicle - seeker.shortest_distance
+            
+        if pick_up_distance < self.cfg.pickup_distance_threshold and (p0_detour < self.detour_distance_threshold and
+                                   p1_detour < self.detour_distance_threshold):
+            return pick_up_distance
+        else:
+            return self.cfg.dead_value
 
 
     def calVehiclesWeights(self, seeker, vehicle ):
@@ -604,7 +696,10 @@ class Simulation():
         pick_up_distance = self.get_path(
             seeker.O_location, vehicle.location)
         
-        return pick_up_distance
+        if pick_up_distance < self.cfg.pickup_distance_threshold:
+            return pick_up_distance
+        else:
+            return self.cfg.dead_value
 
 
     def is_fifo(self, p0, p1):
@@ -637,6 +732,23 @@ class Simulation():
 
 
 
+    def save_figure(self, name, metric):
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        sns.set(style="whitegrid")  # You can choose different styles based on your preference
+
+        plt.figure(figsize=(8, 6))  # Set the figure size
+        # print('metric:{}'.format(name),metric)
+        # Use boxplot() functio \n
+        sns.boxplot(data=metric, palette="Set3", width=0.5)
+
+        # Customize labels and title
+        plt.xlabel(name, fontsize=14)
+        plt.ylabel("Value", fontsize=14)
+
+        # Show the plot
+        plt.savefig('./figure/The boxplot of {} in method {}.png'.format(name, self.cfg.method))
+        plt.close()
 
 
 
@@ -644,7 +756,7 @@ class Simulation():
         import pickle
 
         with open(path, "wb") as tf:
-            pickle.dump(self.res, tf)
+            pickle.dump(self.res_dic, tf)
 
     def save_his_order(self, path):
         dic = {}
