@@ -82,7 +82,11 @@ def search_matching_pairs(OD_idx1, OD_idx2, OD1, OD2, L1, L2, distance_between_d
                 detour_seeker = ride_seeker - L1
                 detour_taker = ride_taker - L2
                 prefer = params['w_detour'] * detour + params['w_pickup'] * pickup_distance + params['w_shared'] * shared + params["w_ride"] * (ride_seeker + ride_taker - shared)
-                match.append([OD_idx1, OD_idx2, 0, prefer, ride_seeker, ride_taker, detour_seeker, detour_taker, shared, destination])
+                seeker_origin = OD1[0]
+                seeker_destination = OD1[1]
+                taker_origin = OD2[0]
+                taker_destination = OD2[1]
+                match.append([OD_idx1, OD_idx2, 0, prefer, ride_seeker, ride_taker, detour_seeker, detour_taker, shared,destination, seeker_origin, seeker_destination, taker_origin, taker_destination, pickup_distance])
 
     for edge in nearest_G.edges(data=True):
         # OD1附近的路网中，有OD2的最短路
@@ -134,7 +138,11 @@ def search_matching_pairs(OD_idx1, OD_idx2, OD1, OD2, L1, L2, distance_between_d
                 detour_seeker = max(ride_seeker - L1, 0)
                 detour_taker = max(ride_taker - L2, 0)
                 prefer = params['w_detour'] * detour + params['w_pickup'] * pickup_distance + params['w_shared'] * shared + params["w_ride"] * (ride_seeker + ride_taker - shared)
-                match.append([OD_idx1, OD_idx2, i, prefer, ride_seeker, ride_taker, detour_seeker, detour_taker, shared,destination])
+                seeker_origin = OD1[0]
+                seeker_destination = OD1[1]
+                taker_origin = OD2[0]
+                taker_destination = OD2[1]
+                match.append([OD_idx1, OD_idx2, i, prefer, ride_seeker, ride_taker, detour_seeker, detour_taker, shared,destination, seeker_origin, seeker_destination, taker_origin, taker_destination, pickup_distance])
     return match
 
 def generate_matches(OD_infor):
@@ -181,7 +189,7 @@ if __name__ == '__main__':
     print("Finish seaching matching pairs:", end_time - start_time)
     # ---------- dump the matching pairs ----------
     result = list(itertools.chain.from_iterable(result))
-    m = pd.DataFrame(result, columns=["seeker_id", "taker_id", "link_idx", "preference", "ride_seeker", "ride_taker", "detour_seeker", "detour_taker", "shared",'destination'])
+    m = pd.DataFrame(result, columns=["seeker_id", "taker_id", "link_idx", "preference", "ride_seeker", "ride_taker", "detour_seeker", "detour_taker", "shared",'destination','seeker_origin', 'seeker_destination', 'taker_origin', 'taker_destination','pickup_distance'])
     m.sort_values(by=["seeker_id", "preference"], ascending=[True, False])
     m.to_csv("result/match.csv", index=False)
     print("There are", m.shape[0], "matching pairs in all.")

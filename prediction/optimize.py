@@ -54,37 +54,37 @@ lambda_w_dic_lis = []
 # print('platform_profit_lis',platform_profit_lis)
 
 
-def objective_function (price_rate_list):
-    for index, OD in OD_dict.items():
-        OD_dict[index][4] = price_rate_list[index]
-    platform_profit,lambda_w_dic = pre.run(OD_dict)
-    print('platform_profit',platform_profit)
-    return -platform_profit
+# def objective_function (price_rate_list):
+#     for index, OD in OD_dict.items():
+#         OD_dict[index][4] = price_rate_list[index]
+#     platform_profit,lambda_w_dic = pre.run(OD_dict)
+#     print('platform_profit',platform_profit)
+#     return -platform_profit
 
-price_rate_ranges = [Real(0.7, 0.9) for _ in range(num_dimensions)]
-# 贝叶斯优化过程
-result = gp_minimize(objective_function, price_rate_ranges, acq_optimizer = 'lbfgs', n_calls=num_dimensions * 100, random_state=0, n_jobs=-1)
+# price_rate_ranges = [Real(0.7, 0.9) for _ in range(num_dimensions)]
+# # 贝叶斯优化过程
+# result = gp_minimize(objective_function, price_rate_ranges, acq_optimizer = 'lbfgs', n_calls=num_dimensions * 100, random_state=0, n_jobs=-1)
 
-#最优解，最优目标函数值，和每次算法迭代的目标函数值
-best_solution = result.x
-best_function_value = result.fun
-func_vals = result.func_vals
-end = time.time()
-print('execute time',end - begin)
-print("Best parameters: {}".format(best_solution))
-print("Best function value: {}".format(best_function_value))
-# 绘制寻解曲线
-plt.plot(platform_profit_lis)
-plt.plot(func_vals)
-plt.xlabel('Iteration')
-plt.ylabel('Objective Function Value')
-plt.title('Optimization Progress')
-plt.show()
-plt.savefig('result/BO_iteration.png')
-plt.close()
+# #最优解，最优目标函数值，和每次算法迭代的目标函数值
+# best_solution = result.x
+# best_function_value = result.fun
+# func_vals = result.func_vals
+# end = time.time()
+# print('execute time',end - begin)
+# print("Best parameters: {}".format(best_solution))
+# print("Best function value: {}".format(best_function_value))
+# # 绘制寻解曲线
+# plt.plot(platform_profit_lis)
+# plt.plot(func_vals)
+# plt.xlabel('Iteration')
+# plt.ylabel('Objective Function Value')
+# plt.title('Optimization Progress')
+# plt.show()
+# plt.savefig('result/BO_iteration.png')
+# plt.close()
 
 
-''' SARCO
+# SARCO
 def objective_function(solution):
     # 获取 Solution 的维度值
     price_rate_list = solution.get_x()
@@ -126,7 +126,7 @@ plt.title('Optimization Progress')
 plt.legend()  # 添加图例
 plt.savefig('result/SRACO_iteration.png')
 plt.close()
-'''
+
 
 
 

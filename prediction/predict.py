@@ -12,6 +12,7 @@ import seaborn as sns
 sns.set()
 import time
 import os
+import Network
 
 from settings import params
 import logging
@@ -20,7 +21,11 @@ import logging
 logging.basicConfig(filename='print.log', level=logging.DEBUG)
 
 import networkx as nx
+import cvxpy as cp
 
+OD_df = pd.read_csv('data/OD.csv')
+shortest_path = pd.read_csv('data/shortest_path.csv')
+shortest_path_dic = {}
 
 if True:
     with open("tmp/graph.pickle", 'rb') as f:
@@ -54,8 +59,7 @@ class Predict():
                     return False
             else:
                 return False
-
-
+            
 
         start_time = time.time()
         # -------------------- Start the fixed point iteration --------------------
@@ -78,7 +82,7 @@ class Predict():
                 # 将df转为字典
                 matches.setdefault(index[0], []).append({"taker_id": index[1], "link_idx": index[2], "preference": row["preference"],
                                                         "ride_seeker": row["ride_seeker"], "ride_taker": row["ride_taker"],
-                                                        "detour_seeker": row["detour_seeker"], "detour_taker": row["detour_taker"], "shared": row["shared"], "destination": row["destination"],"eta_match": 0})
+                                                        "detour_seeker": row["detour_seeker"], "detour_taker": row["detour_taker"], "shared": row["shared"], "destination": row["destination"],"eta_match": 0, 'seeker_origin':row['seeker_origin'],'seeker_destination':row['seeker_destination'],'taker_origin':row['taker_origin'],'taker_destination':row['taker_destination'],'pickup_distance':row['pickup_distance']})
             print("Data loaded.")
             # ---------- Initialize seekers and takers ----------
             seekers = dict()
@@ -86,10 +90,12 @@ class Predict():
                 seekers[seeker_id] = {"lambda": OD[2], "p_seeker": OD[2],'solo_distance':OD[3]}
 
             lambda_w_dic = {}
+            lambda_w_bar_dic = {}
             t_w_pk_bar_dic = {}
             t_w_dic = {}
             for od_id, OD in OD_dict.items():
                 lambda_w_dic[od_id] =  OD[2]
+                lambda_w_bar_dic[od_id] =  OD[2]
                 t_w_pk_bar_dic[od_id] =  params['pickup_time']
             
             takers = dict()
@@ -262,7 +268,7 @@ class Predict():
                 if pd.isna(node_dict[node_id][2]):
                     v_dic[node_id] = 0
                     continue
-                W_node_id = list(map(int,node_dict[node_id][2].split(',')))
+                W_node_id = list(map(int,node_dict[node_id][2].split(','))) # 该点经过的所有的OD
                 v_i = 0
                 for OD_index in W_node_id:
                     P_w = seekers[OD_index]['matching_prob']
@@ -276,7 +282,182 @@ class Predict():
                             v_i += taker["eta_match"] * takers[taker["taker_id"]][taker["link_idx"]]["rho_taker"]
 
                 v_dic[node_id] = v_i
+                # print('v_dic[node_id]',v_dic[node_id],'node',node_id)
                 # logging.info('v_dic[node_id]',v_dic[node_id],'node_id',node_id,'W_node_id',W_node_id,'M_node_id',M_node_id)
+            
+            
+            
+            destinations = OD_df['destination_id'].unique()
+            od_dic_tmp = {}
+            for j in destinations:
+                od_dic_tmp[j] = OD_df[OD_df['destination_id'] == j]['origin_id'].unique()
+                    
+            origins = OD_df['origin_id'].unique()
+            origin_dic = {i: origins[i] for i in range(len(origins))}
+            destination_dic = {i: destinations[i] for i in range(len(destinations))}
+                
+            T_file = 'tmp/T_data.npy'
+            def get_path( O, D):
+                tmp = shortest_path[(shortest_path['O'] == O) & (
+                    shortest_path['D'] == D)]
+                if tmp['distance'].unique():
+                    return tmp['distance'].unique()[0]
+                else:
+                    return net.get_path(O,D)[0]
+        
+            net = Network.Network()
+            
+            if os.path.exists(T_file):
+                # 如果文件存在，则加载T
+                T = np.load(T_file)
+            else:
+                # 如果文件不存在，则计算T并保存到文件
+                T = np.ones((len(destinations), len(origins))) * 100
+                for j in range(len(T)):
+                    for i in range(len(T[0])):
+                        if (j, i) in shortest_path_dic.keys():
+                            T[j, i] = shortest_path_dic[(j, i)]
+                            if T[j, i] == -1:
+                                T[j, i] = 1e8
+                        else:
+                            dis = get_path(destination_dic[j], origin_dic[i])
+                            shortest_path_dic[(j, i)] = dis
+                            T[j, i] = shortest_path_dic[(j, i)]
+                            if T[j, i] == -1:
+                                T[j, i] = 1e8
+                
+                # 保存T到文件
+                np.save(T_file, T)
+
+
+            # print('T',T)
+
+            # relocation problem
+            def relocate_optimization(T, v_dic):
+                # print('v_dic',v_dic)
+                # decision vars
+                x = cp.Variable(( len(destinations),len(origins)), pos = True)
+                # constrant
+                constraints = []
+                for j, node_id in destination_dic.items():
+                    constraint = cp.sum(x[j,:]) == 1  # flow constraint of destination
+                    constraints.append(constraint)
+                    
+                for i, node_id in origin_dic.items():
+                    if pd.isna(node_dict[node_id][2]):
+                        continue
+                    # ods generated from origin i
+                    W_node_id = list(map(int,node_dict[node_id][2].split(','))) # 该点经过的所有的OD
+                    left = 0
+                    for OD_index in W_node_id:
+                        P_w = seekers[OD_index]['matching_prob']
+                        lambda_w = seekers[OD_index]['lambda']
+                        left += (1-P_w )* lambda_w
+                    
+                    right = 0
+                    for j, node_id in destination_dic.items():
+                        right += x[j,i] * v_dic[node_id]
+                        # print('v_dic[node_id]',v_dic[node_id])
+                    # print('left',left)
+                    constraint = left == right   # flow constraint of origination
+                    constraints.append(constraint)
+                constraints.append(x >= 0)
+                constraints.append(x <= 1)
+                   
+                  
+                v_lis = []
+                for i, node_id in origin_dic.items():
+                    v_lis.append(v_dic[node_id])
+                # print(len(v_dic), len(v_lis)) 
+                
+                # Obj
+                objective = cp.Minimize(cp.sum(cp.multiply(T, x) @ np.array(v_lis)))
+
+
+                # solve
+                problem = cp.Problem(objective, constraints)
+                problem.solve()
+                # problem.solve(solver=cp.GUROBI, verbose=True)
+                solve_time = problem.solver_stats.solve_time
+                print("求解时间:", solve_time, "秒") 
+                print("status:", problem.status)
+                # print("求解状态:", problem.solver_stats ) 
+                for j, node_id in destination_dic.items():
+                    print('j{},x:'.format(j),x[j,:].value)
+                #     print('node_id{}:value'.format(node_id),np.sum(x[j,:].value), 'len', x[j,:].shape)
+
+                # flow_rate 
+                v_relocate = np.zeros(( len(destinations),len(origins)))
+                for j, j_node_id in destination_dic.items():
+                    for i, node_id in origin_dic.items():
+                        v_relocate[j,i] = x[j,i].value * v_dic[j_node_id]
+                return v_relocate
+        
+            def relocate_optimization_gurobi(T, v_dic):
+                # print('v_dic',v_dic)
+                # decision vars
+                import gurobipy as gp
+                from gurobipy import GRB
+                
+                model = gp.Model()
+                
+                x = model.addVars( len(destinations),len(origins), lb = 0, ub = 1, name = 'x')
+                
+                # constrant
+                for j, node_id in destination_dic.items():
+                    constraint = gp.quicksum(x[j,i] for i in range(len(origins))) == 1  # flow constraint of destination
+                    model.addConstr(constraint)
+                    
+                for i, node_id in origin_dic.items():
+                    if pd.isna(node_dict[node_id][2]):
+                        continue
+                    # ods generated from origin i
+                    W_node_id = list(map(int,node_dict[node_id][2].split(','))) # 该点经过的所有的OD
+                    left = 0
+                    for OD_index in W_node_id:
+                        P_w = seekers[OD_index]['matching_prob']
+                        lambda_w = seekers[OD_index]['lambda']
+                        left += (1-P_w )* lambda_w
+                    
+                    right = 0
+                    for j, j_node_id in destination_dic.items():
+                        right += x[j,i] * v_dic[j_node_id]
+                        # print('v_dic[node_id]',v_dic[j_node_id])
+                    # print('i{},node_id{}'.format(i,node_id),'left',left)
+                    constraint = left == right   # flow constraint of origination
+                    model.addConstr(constraint)
+                   
+                  
+                v_lis = []
+                for j, j_node_id in destination_dic.items():
+                    v_lis.append(v_dic[j_node_id])
+                # print(len(v_dic), len(v_lis)) 
+                
+                # Obj
+                objective = gp.quicksum(T[j,i] * x[j,i] * v_lis[j] for j in range(len(destinations)) for i in range(len(origins)))
+                model.setObjective(objective, sense = GRB.MINIMIZE)
+                model.setParam('OutputFlag', 0)
+                # solve
+                model.optimize()
+                solve_time = model.Runtime
+                # print("求解时间:", solve_time, "秒") 
+                # print("status:", model.status)
+
+                # print('obj:{}'.format(model.objVal))
+                # for j in range(len(destinations)):
+                #     for i in range(len(origins)):
+                #         if x[j,i].X != 0:
+                #             print('x{},{}:{},T:{},min_T:{},v:{}'.format(j,i,x[j,i].X,T[j,i], np.min(T[j,:]), v_lis[j]))
+                # flow_rate 
+                v_relocate = np.zeros(( len(destinations),len(origins)))
+                for j, j_node_id in destination_dic.items():
+                    for i, node_id in origin_dic.items():
+                        v_relocate[j,i] = x[j,i].X * v_dic[j_node_id]
+                return v_relocate
+            
+            # v_relocate = relocate_optimization(T, v_dic)
+            v_relocate = relocate_optimization_gurobi(T, v_dic)
+            
             # the total number of vacant vehicles at each instant
 
             tmp = 0
@@ -288,23 +469,47 @@ class Predict():
                 p_s_w = seekers[od_id]["p_seeker"]
                 tmp += ( (L_w - E_w / 2 ) * lambda_w / params['speed'] + t_w_pk_bar_dic[od_id] * (1 - p_s_w) * lambda_w)
 
+            for j, j_node_id in destination_dic.items():
+                for i, node_id in origin_dic.items():
+                    tmp += v_relocate[j,i] * T[j,i] / params['speed']
+
             n_v = params['n_v'] - tmp
+            print('n_v', params['n_v'],'tmp', tmp)
             # the number of vacant vehicles at each node i
             n_i_v_dic = {}
-            n_i_v = 0
-            for node_id in node_dict.keys():
-                n_i_v += v_dic[node_id]
+            sum_v_ji = 0
+            for j, j_node_id in destination_dic.items():
+                for i, node_id in origin_dic.items():
+                    sum_v_ji += v_relocate[j,i]
 
-            for node_id in node_dict.keys():
-                n_i_v_dic[node_id] = v_dic[node_id] / n_i_v * n_v
+            for i, node_id in origin_dic.items():
+                tmp = 0
+                for j, j_node_id in destination_dic.items():
+                    tmp += v_relocate[j,i]
+                n_i_v_dic[node_id] = tmp / sum_v_ji * n_v
+                # print(n_i_v_dic[node_id],'n_i_v_dic[node_id]')
                 # logging.info('node_id,{},v_dic[node_id],{},n_i_v{},n_v{}'.format(node_id,v_dic[node_id],n_i_v,n_v))
             def pickup_distance_with_vacant_vehicles(n_vacant_vehicles):
                 if n_vacant_vehicles == 0:
                     return 30
                 else:
-                    return 2.5 / np.sqrt(n_vacant_vehicles / (np.pi * 3 * 3) )  # 单位为min
+                    return min(30, 1 / np.sqrt(n_vacant_vehicles / (np.pi * 3 * 3) ) ) # 单位为min # rho = 2.5
 
-            # update pickup time
+
+
+
+            # update t_tilde pickup time
+            t_w_pk_tilde_dic = {}
+            for seeker_id, takers_of_seeker in matches.items():
+                t_w_pk_tilde = 0
+                for taker in takers_of_seeker:
+                    L_sw_taw = taker['pickup_distance']
+                    # print('taker pickup distance:', L_sw_taw)
+                    t_w_pk_tilde += taker["eta_match"] * takers[taker["taker_id"]][taker["link_idx"]]["rho_taker"] \
+                        / lambda_w_dic[seeker_id] * L_sw_taw / params['speed']
+                t_w_pk_tilde_dic[seeker_id] = t_w_pk_tilde
+                    
+            # update t_bar pickup time
             for od_id in OD_dict.keys():
                 # the pick-up distance
                 nearest_nodes = []
@@ -321,13 +526,19 @@ class Predict():
                 # logging.info('n_vacant_vehicles',n_vacant_vehicles)
 
                 t_w_pk_bar = pickup_distance_with_vacant_vehicles(n_vacant_vehicles)
+                # print('n_vacant_vehicles',n_vacant_vehicles, 't_w_pk_bar',t_w_pk_bar)
                 tmp_t_w_pk_bar = t_w_pk_bar_dic[od_id]
-
                 t_w_pk_bar_dic[od_id] = t_w_pk_bar
-                t_w_dic[od_id] = p_s_w * 0.5 * params['search_radius'] /params['speed'] + (1 - p_s_w) * t_w_pk_bar
+                # t_w_dic[od_id] = p_s_w * 0.5 * params['search_radius'] /params['speed'] + (1 - p_s_w) * t_w_pk_bar
+                t_w_dic[od_id] = p_s_w * t_w_pk_tilde_dic[od_id] + (1 - p_s_w) * t_w_pk_bar_dic[od_id]
+                # print('od:{},t_bar:{},t_tilde:{},t_pool:{},p_s_w:{}'.format(od_id, t_w_pk_bar, t_w_pk_tilde_dic[od_id],t_w_dic[od_id],p_s_w))
                 t_pk_w_step.append(abs(t_w_pk_bar_dic[od_id] - tmp_t_w_pk_bar))
                 # print('od_id',od_id,'t_w_pk_bar',t_w_pk_bar,'t_w_dic[od_id]',t_w_dic[od_id])
 
+
+
+            
+            
             #  the mean ridepooling cost between each OD pair
             def p_w_function(theta, solo_distance):
                 solo_price = solo_distance /1000 * 2.5 # 2.5 $ per km
@@ -340,8 +551,13 @@ class Predict():
                 C_w_dic[od_id]['pool'] = params['beta'] * (t_w_dic[od_id] + seekers[od_id]["ride_distance"] / params['speed']) + \
                 p_w_function(OD_dict[od_id][4], seekers[od_id]['solo_distance']) + params['delta']
 
-                C_w_dic[od_id]['solo'] = params['beta'] * (2 + OD_dict[od_id][3] / params['speed']) + \
+                C_w_dic[od_id]['solo'] = params['beta'] * (t_w_pk_tilde_dic[od_id] + OD_dict[od_id][3] / params['speed']) + \
                 p_w_function(1, seekers[od_id]['solo_distance'])
+                
+                # print('cost pool',C_w_dic[od_id]['pool'],'cost solo',C_w_dic[od_id]['solo'] )
+
+                # print('t_w_pool',t_w_dic[od_id],'t_w_solo',t_w_pk_tilde_dic[od_id])
+                # print('pool ride_distance:{}, solo ride_distance:{}, pool discount:{}'.format(seekers[od_id]["ride_distance"], seekers[od_id]['solo_distance'], OD_dict[od_id][4]))
 
 
             # ridepooling demand rate between OD pair
@@ -351,19 +567,22 @@ class Predict():
                 return  np.exp(-k*C_w)
             def f_w_function(C_w, C_w_solo ):
                 a = 1
-                
+                # print('C_w - C_w_solo',C_w - C_w_solo)
                 return  1 / (1 + np.exp(a*(C_w - C_w_solo)) )
             # print('C_w_dic',C_w_dic.values())
 
+            # print('更新前，lambda_w_dic',lambda_w_dic.values())
             # 不动点更新
             for od_id in OD_dict.keys():
                 # lambda update
                 lambda_w_tmp = lambda_w_dic[od_id] # seekers[od_id]['lambda']
-                lambda_w_dic[od_id] = lambda_w_tmp  * f_w_function(C_w_dic[od_id]['pool'],  C_w_dic[od_id]['solo'])
+                lambda_w_dic[od_id] = lambda_w_bar_dic[od_id]  * f_w_function(C_w_dic[od_id]['pool'],  C_w_dic[od_id]['solo'])
                 # print('f_w_function(C_w_dic[od_id] )',f_w_function(C_w_dic[od_id]['pool'] ,  C_w_dic[od_id]['solo']))
                 lambda_w_step.append(abs(lambda_w_dic[od_id] - lambda_w_tmp))
 
-
+            # print('lambda_w_dic',lambda_w_dic.values())
+            # print('t_w_dic',t_w_dic.values())
+            
             outer_iter_num += 1
             outer_all_steps.append([np.max(lambda_w_step), np.max(t_pk_w_step)])
             outer_error = np.max(outer_all_steps[len(outer_all_steps) - 1])

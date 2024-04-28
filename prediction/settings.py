@@ -29,11 +29,11 @@ params = {
     'max_iter_time': 200,
     "min_iter_time": 5,
     'convergent_condition': 1e-6,
-    'outer_max_iter_time': 100,
+    'outer_max_iter_time': 5,
     'outer_convergent_condition': 1e-2,
     'M': 1e6,
     'epsilon': 1e-6,
     'n_v':300,
     'beta':1,
-    'delta':1,
+    'delta':0.001,
 }
