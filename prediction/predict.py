@@ -442,7 +442,18 @@ class Predict():
                 solve_time = model.Runtime
                 # print("求解时间:", solve_time, "秒") 
                 # print("status:", model.status)
+                # 获取解并保存到文件
 
+                res = np.ones((len(destinations), len(origins)))
+                for j in range(len(destinations)):
+                    for i in range(len(origins)):
+                        res[j,i] =  x[j,i].X
+                        
+                np.save("result/relocation.npy", res)
+                df = pd.DataFrame(res)
+                df.index = destination_dic.values()
+                df.columns = origin_dic.values()
+                df.to_csv('result/relocation.csv')
                 # print('obj:{}'.format(model.objVal))
                 # for j in range(len(destinations)):
                 #     for i in range(len(origins)):

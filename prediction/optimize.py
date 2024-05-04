@@ -27,9 +27,9 @@ begin = time.time()
 
 with open("tmp/OD.pickle", 'rb') as f:
     OD_dict: dict = pickle.load(f)
-# for index, OD in OD_dict.items():
-#     OD_dict[index][4] = 0.5
-# platform_profit,lambda_w_dic = pre.run(OD_dict)
+for index, OD in OD_dict.items():
+    OD_dict[index][4] = 0.5
+platform_profit,lambda_w_dic = pre.run(OD_dict)
 
 # 决策变量维度和取值范围设置
 num_dimensions = len(OD_dict)
@@ -99,33 +99,33 @@ def objective_function(solution):
 
 # 决策变量维度，取值范围等基本设置
 
-dim_regs = [[0.7,0.9]] * num_dimensions  # dimension range
-dim_tys = [True] * num_dimensions  # dimension type : real
-dim = Dimension(num_dimensions, dim_regs, dim_tys)  # form up the dimension object
-objective = Objective(objective_function, dim)  # form up the objective function
+# dim_regs = [[0.7,0.9]] * num_dimensions  # dimension range
+# dim_tys = [True] * num_dimensions  # dimension type : real
+# dim = Dimension(num_dimensions, dim_regs, dim_tys)  # form up the dimension object
+# objective = Objective(objective_function, dim)  # form up the objective function
 
-# parallel optimization for time-consuming tasks
-solution_opt = Opt.min(objective, Parameter(budget=  100 * num_dimensions, parallel=True, server_num=128))
+# # parallel optimization for time-consuming tasks
+# solution_opt = Opt.min(objective, Parameter(budget=  100 * num_dimensions, parallel=True, server_num=128))
 
-#最优解，最优目标函数值，和每次算法迭代的目标函数值
-best_solution = solution_opt.get_x()
-best_function_value = solution_opt.get_value()
-history_value = objective.get_history_bestsofar()
+# #最优解，最优目标函数值，和每次算法迭代的目标函数值
+# best_solution = solution_opt.get_x()
+# best_function_value = solution_opt.get_value()
+# history_value = objective.get_history_bestsofar()
 
-print("Best parameters: {}".format(best_solution))
-print("Best function value: {}".format(best_function_value))
+# print("Best parameters: {}".format(best_solution))
+# print("Best function value: {}".format(best_function_value))
 
-print('profit',platform_profit_lis)
+# print('profit',platform_profit_lis)
 
-# 绘制寻解曲线
-plt.plot(platform_profit_lis, label='Platform Profit')
-plt.plot(history_value, label='Optimization Progress')
-plt.xlabel('Iteration')
-plt.ylabel('Objective Function Value')
-plt.title('Optimization Progress')
-plt.legend()  # 添加图例
-plt.savefig('result/SRACO_iteration.png')
-plt.close()
+# # 绘制寻解曲线
+# plt.plot(platform_profit_lis, label='Platform Profit')
+# plt.plot(history_value, label='Optimization Progress')
+# plt.xlabel('Iteration')
+# plt.ylabel('Objective Function Value')
+# plt.title('Optimization Progress')
+# plt.legend()  # 添加图例
+# plt.savefig('result/SRACO_iteration.png')
+# plt.close()
 
 
 
